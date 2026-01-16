@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, startTransition } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import StorageService from '../../services/StorageService';
+import FirebaseService from '../../services/FirebaseService';
 import './ResultsView.css';
 
 const ResultsView = () => {
   const [participants, setParticipants] = useState([]);
-  const [events] = useState(StorageService.getEvents());
+  const [events, setEvents] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [allScores, setAllScores] = useState([]);
+  const [sections, setSections] = useState([]);
   const [pointsConfig, setPointsConfig] = useState({
     individual: { first: 5, second: 3, third: 1 },
     group: { first: 10, second: 5, third: 3 }
@@ -15,109 +17,191 @@ const ResultsView = () => {
   const [selectedEvent, setSelectedEvent] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [declaredResults, setDeclaredResults] = useState([]);
+  const [isCurrentEventDeclared, setIsCurrentEventDeclared] = useState(false);
+  const [isCurrentEventLocked, setIsCurrentEventLocked] = useState(false);
+  const [judgeLockStatus, setJudgeLockStatus] = useState([]);
+  const [results, setResults] = useState([]);
+  const [hasParticipants, setHasParticipants] = useState(true);
+  const [judges, setJudges] = useState([]);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const eventId = location.state?.eventId;
 
   useEffect(() => {
     if (!user || user.role !== 'admin') {
       navigate('/admin/login');
     } else {
-      setParticipants(StorageService.getParticipants());
-      setAllScores(StorageService.getScores());
-      setDeclaredResults(StorageService.getDeclaredResults());
-      const data = StorageService.getData();
-      setPointsConfig(data.pointsConfig || {
-        individual: { first: 5, second: 3, third: 1 },
-        group: { first: 10, second: 5, third: 3 }
-      });
+      loadData();
     }
   }, [user, navigate]);
 
+  const loadData = async () => {
+    const allEvents = await FirebaseService.getEvents();
+    setEvents(allEvents);
+    const allCategories = await FirebaseService.getCategories();
+    setCategories(allCategories.sort((a, b) => (a.order || 0) - (b.order || 0)));
+    const allParticipants = await FirebaseService.getParticipants();
+    setParticipants(allParticipants);
+    const allSections = await FirebaseService.getSections();
+    setSections(allSections);
+    const allJudges = await FirebaseService.getJudges();
+    setJudges(allJudges);
+    const scores = await FirebaseService.getScores();
+    setAllScores(scores);
+    const declaredResults = await FirebaseService.getDeclaredResults();
+    setDeclaredResults(declaredResults);
+    const data = await FirebaseService.getData();
+    setPointsConfig(data.pointsConfig || {
+      individual: { first: 5, second: 3, third: 1 },
+      group: { first: 10, second: 5, third: 3 }
+    });
+  };
+
+  useEffect(() => {
+    const checkEventStatus = async () => {
+      if (!selectedEvent || !selectedCategory) {
+        setIsCurrentEventDeclared(false);
+        setIsCurrentEventLocked(false);
+        setJudgeLockStatus([]);
+        return;
+      }
+
+      const eventId = selectedEvent;
+      const declared = await FirebaseService.isResultDeclared(eventId, selectedCategory);
+      setIsCurrentEventDeclared(declared);
+
+      const locked = await FirebaseService.areAllJudgesLocked(eventId, selectedCategory);
+      setIsCurrentEventLocked(locked);
+
+      // Get individual judge lock status
+      const judges = await FirebaseService.getJudges();
+      const judgeLocks = await FirebaseService.getJudgeLocks();
+      
+      console.log('Debug - Selected Event ID:', eventId);
+      console.log('Debug - Selected Category:', selectedCategory);
+      console.log('Debug - All Judges:', judges);
+      console.log('Debug - All Judge Locks:', judgeLocks);
+      
+      const lockStatusList = judges.map(judge => {
+        const lock = judgeLocks.find(
+          l => {
+            console.log(`Checking judge ${judge.username}: lock.eventId=${l.eventId}, eventId=${eventId}, lock.category=${l.category}, selectedCategory=${selectedCategory}`);
+            return l.judgeName === judge.username && 
+                   String(l.eventId) === String(eventId) && 
+                   l.category === selectedCategory;
+          }
+        );
+        console.log(`Judge ${judge.username} lock found:`, lock);
+        return {
+          judgeName: judge.username,
+          isLocked: lock ? lock.locked : false
+        };
+      });
+      
+      console.log('Debug - Lock Status List:', lockStatusList);
+      setJudgeLockStatus(lockStatusList);
+    };
+
+    checkEventStatus();
+  }, [selectedEvent, selectedCategory, declaredResults]);
+
   const handleLogout = () => {
     logout();
-    navigate('/admin/login');
+    startTransition(() => {
+      navigate('/admin/login');
+    });
   };
 
   const handleBackToDashboard = () => {
-    navigate('/admin/dashboard');
+    if (eventId) {
+      navigate(`/admin/event/${eventId}`);
+    } else {
+      navigate('/admin/events');
+    }
   };
 
-  const handleDeclareResult = () => {
+  const handleDeclareResult = async () => {
     if (!selectedEvent || !selectedCategory) return;
     
-    const result = StorageService.declareResult(parseInt(selectedEvent), selectedCategory);
+    const result = await FirebaseService.declareResult(selectedEvent, selectedCategory);
     if (result.success) {
-      setDeclaredResults(StorageService.getDeclaredResults());
+      const declaredResults = await FirebaseService.getDeclaredResults();
+      setDeclaredResults(declaredResults);
       alert(result.message);
     } else {
       alert(result.message);
     }
   };
 
-  const handleRevertDeclaration = () => {
+  const handleRevertDeclaration = async () => {
     if (!selectedEvent || !selectedCategory) return;
     
-    const result = StorageService.revertDeclaration(parseInt(selectedEvent), selectedCategory);
+    const result = await FirebaseService.revertDeclaration(selectedEvent, selectedCategory);
     if (result.success) {
-      setDeclaredResults(StorageService.getDeclaredResults());
+      const declaredResults = await FirebaseService.getDeclaredResults();
+      setDeclaredResults(declaredResults);
       alert(result.message);
     } else {
       alert(result.message);
     }
   };
 
-  const handleDeclareAllResults = () => {
+  const handleDeclareAllResults = async () => {
     if (!window.confirm('Declare all locked results? This will publish all events and categories where all judges have locked their scores.')) {
       return;
     }
     
-    const result = StorageService.declareAllResults();
-    setDeclaredResults(StorageService.getDeclaredResults());
+    const result = await FirebaseService.declareAllResults();
+    const declaredResults = await FirebaseService.getDeclaredResults();
+    setDeclaredResults(declaredResults);
     alert(result.message);
   };
 
-  const handleRevertAllDeclarations = () => {
+  const handleRevertAllDeclarations = async () => {
     if (!window.confirm('Revert ALL declared results? This will unpublish all individual event results. This action cannot be undone.')) {
       return;
     }
     
-    const result = StorageService.revertAllDeclarations();
-    setDeclaredResults(StorageService.getDeclaredResults());
+    const result = await FirebaseService.revertAllDeclarations();
+    const declaredResults = await FirebaseService.getDeclaredResults();
+    setDeclaredResults(declaredResults);
     alert(result.message);
   };
 
-  const isResultDeclared = () => {
-    if (!selectedEvent || !selectedCategory) return false;
-    return StorageService.isResultDeclared(parseInt(selectedEvent), selectedCategory);
+  const getEventName = (eventId) => {
+    const event = events.find(e => e.id === eventId);
+    return event ? event.name : 'Unknown';
   };
 
-  const getEventName = (eventId) => {
-    const event = events.find(e => e.id === parseInt(eventId));
-    return event ? event.name : 'Unknown';
+  const getSectionName = (sectionId) => {
+    const section = sections.find(s => String(s.id) === String(sectionId));
+    return section ? section.name : 'Unknown';
   };
 
   const getResults = () => {
     if (!selectedEvent || !selectedCategory) return [];
 
-    const eventId = parseInt(selectedEvent);
+    const eventId = selectedEvent;
     
-    // Check if all judges have locked this event-category combination
-    const isLocked = StorageService.areAllJudgesLocked(eventId, selectedCategory);
-    
-    if (!isLocked) {
-      return null; // Not all judges locked yet
-    }
-
     // Get participants for this event and category
     const eventParticipants = participants.filter(p => {
-      const eventIds = p.eventIds || (p.eventId ? [parseInt(p.eventId)] : []);
+      const eventIds = p.eventIds || (p.eventId ? [p.eventId] : []);
       return eventIds.includes(eventId) && p.ageCategory === selectedCategory;
     });
+
+    // Update hasParticipants state
+    setHasParticipants(eventParticipants.length > 0);
+    
+    // Check if all judges have locked this event-category combination using state
+    if (!isCurrentEventLocked) {
+      return []; // Not all judges locked yet
+    }
 
     // Calculate results
     const results = eventParticipants.map(participant => {
       const participantScores = allScores.filter(
-        s => s.participantId === participant.id && s.eventId === eventId
+        s => s.participantId === participant.id && String(s.eventId) === String(eventId)
       );
 
       const judgeScores = participantScores.map(s => ({
@@ -163,21 +247,24 @@ const ResultsView = () => {
     return results;
   };
 
-  const results = getResults();
-  const isLocked = selectedEvent && selectedCategory 
-    ? StorageService.areAllJudgesLocked(parseInt(selectedEvent), selectedCategory)
-    : false;
-
-  const judgeCredentials = StorageService.getData().judgeCredentials;
+  // Load results when event, category, or lock status changes
+  useEffect(() => {
+    const loadResults = () => {
+      const calculatedResults = getResults();
+      setResults(calculatedResults);
+    };
+    
+    loadResults();
+  }, [selectedEvent, selectedCategory, isCurrentEventLocked]);
 
   // Debug logging
   useEffect(() => {
     if (results && results.length > 0) {
       console.log('Results:', results);
-      console.log('Judge Credentials:', judgeCredentials);
+      console.log('Judges:', judges);
       console.log('Sample result judgeScores:', results[0]?.judgeScores);
     }
-  }, [results]);
+  }, [results, judges]);
 
   return (
     <div className="results-view">
@@ -188,7 +275,7 @@ const ResultsView = () => {
         </div>
         <div className="header-actions">
           <button onClick={handleBackToDashboard} className="btn btn-secondary">
-            Back to Dashboard
+            {eventId ? '← Back to Event' : '← Back to Events'}
           </button>
           <button onClick={handleLogout} className="btn btn-secondary">
             Logout
@@ -242,29 +329,72 @@ const ResultsView = () => {
               onChange={(e) => setSelectedCategory(e.target.value)}
             >
               <option value="">-- Choose Category --</option>
-              <option value="Junior">Junior (6-10)</option>
-              <option value="Intermediate">Intermediate (11-15)</option>
-              <option value="Senior">Senior (16-20)</option>
-              <option value="Super Senior">Super Senior (21-25)</option>
+              {categories.map(category => (
+                <option key={category.id} value={category.name}>
+                  {category.name} ({category.minAge}-{category.maxAge})
+                </option>
+              ))}
             </select>
           </div>
         </div>
 
-        {selectedEvent && selectedCategory && !isLocked && (
+        {/* Step 1: Check if no participants exist */}
+        {selectedEvent && selectedCategory && !hasParticipants && (
+          <div className="warning-message">
+            <p>⚠️ No participants found for this event and category combination.</p>
+          </div>
+        )}
+
+        {/* Step 2: If participants exist, show judge lock status */}
+        {selectedEvent && selectedCategory && hasParticipants && (
+          <div className="judge-lock-status-section">
+            <h3>Judge Lock Status</h3>
+            {judgeLockStatus.length > 0 ? (
+              <>
+                <div className="judge-locks-grid">
+                  {judgeLockStatus.map((judge, index) => (
+                    <div key={index} className={`judge-lock-item ${judge.isLocked ? 'locked' : 'unlocked'}`}>
+                      <div className="judge-lock-icon">
+                        {judge.isLocked ? '🔒' : '🔓'}
+                      </div>
+                      <div className="judge-lock-info">
+                        <span className="judge-name">{judge.judgeName}</span>
+                        <span className={`lock-status ${judge.isLocked ? 'locked' : 'unlocked'}`}>
+                          {judge.isLocked ? 'Locked' : 'Not Locked'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {isCurrentEventLocked && (
+                  <div className="all-locked-badge">
+                    ✅ All judges have locked their scores
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="no-data">Loading judge status...</p>
+            )}
+          </div>
+        )}
+
+        {/* Step 3: If not all judges locked, show warning */}
+        {selectedEvent && selectedCategory && hasParticipants && !isCurrentEventLocked && (
           <div className="warning-message">
             <p>⚠️ Results are not available yet. Not all judges have locked their scores for this event and category.</p>
             <p>Please ensure all judges complete and lock their scoring before viewing results.</p>
           </div>
         )}
 
-        {selectedEvent && selectedCategory && isLocked && results && results.length > 0 && (
-          <div className="results-container">
-            <div className="results-header">
-              <h3>Results: {getEventName(parseInt(selectedEvent))} - {selectedCategory}</h3>
+        {/* Step 4: If all judges locked, show results */}
+        {selectedEvent && selectedCategory && hasParticipants && isCurrentEventLocked && (
+          <div className="results-container">`
+              <div className="results-header">
+                <h3>Results: {getEventName(selectedEvent)} - {selectedCategory}</h3>
               
               {/* Declaration Controls */}
               <div className="declaration-controls">
-                {isResultDeclared() ? (
+                {isCurrentEventDeclared ? (
                   <div className="declaration-status">
                     <span className="status-badge declared">✓ Result Declared</span>
                     <button 
@@ -312,9 +442,10 @@ const ResultsView = () => {
                     <th>Rank</th>
                     <th>Chest No.</th>
                     <th>Name</th>
+                    <th>Church</th>
                     <th>Age</th>
-                    {judgeCredentials && judgeCredentials.map(judge => (
-                      <th key={judge.username}>{judge.username}</th>
+                    {judges && judges.map(judge => (
+                      <th key={judge.id}>{judge.username}</th>
                     ))}
                     <th>Total</th>
                     <th>Average</th>
@@ -338,11 +469,15 @@ const ResultsView = () => {
                           <span className="chest-number">{result.participant.chestNumber || 'N/A'}</span>
                         </td>
                         <td><strong>{result.participant.name}</strong></td>
+                        <td>
+                          {result.participant.churchName || 'N/A'}
+                          {result.participant.section && ` (${result.participant.section})`}
+                        </td>
                         <td>{result.participant.age}</td>
-                        {judgeCredentials && judgeCredentials.map(judge => {
+                        {judges && judges.map(judge => {
                           const judgeScore = result.judgeScores?.find(s => s.judgeName === judge.username);
                           return (
-                            <td key={judge.username}>
+                            <td key={judge.id}>
                               <strong>{judgeScore ? judgeScore.totalScore : '-'}</strong>
                             </td>
                           );
@@ -363,10 +498,6 @@ const ResultsView = () => {
               </table>
             </div>
           </div>
-        )}
-
-        {selectedEvent && selectedCategory && isLocked && results && results.length === 0 && (
-          <p className="no-data">No participants found for this event and category.</p>
         )}
       </div>
     </div>

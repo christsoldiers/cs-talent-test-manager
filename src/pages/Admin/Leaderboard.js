@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, startTransition } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import StorageService from '../../services/StorageService';
+import FirebaseService from '../../services/FirebaseService';
 import './Leaderboard.css';
 
 const Leaderboard = () => {
   const [participants, setParticipants] = useState([]);
-  const [events] = useState(StorageService.getEvents());
-  const [sections] = useState(StorageService.getSections());
+  const [events, setEvents] = useState([]);
+  const [sections, setSections] = useState([]);
   const [allScores, setAllScores] = useState([]);
   const [groupTeams, setGroupTeams] = useState([]);
   const [groupEvents, setGroupEvents] = useState([]);
@@ -21,41 +21,55 @@ const Leaderboard = () => {
   const [championsDeclared, setChampionsDeclared] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const eventId = location.state?.eventId;
 
   useEffect(() => {
     if (!user || user.role !== 'admin') {
       navigate('/admin/login');
     } else {
-      setParticipants(StorageService.getParticipants());
-      setAllScores(StorageService.getScores());
-      const data = StorageService.getData();
-      setGroupTeams(data.groupTeams || []);
-      setGroupEvents(data.groupEvents || []);
-      setChampionsDeclared(data.championsDeclared || false);
-      setPointsConfig(data.pointsConfig || {
-        individual: { first: 5, second: 3, third: 1 },
-        group: { first: 10, second: 5, third: 3 }
-      });
+      loadData();
     }
   }, [user, navigate]);
 
+  const loadData = async () => {
+    const allEvents = await FirebaseService.getEvents();
+    setEvents(allEvents);
+    const allSections = await FirebaseService.getSections();
+    setSections(allSections);
+    const allParticipants = await FirebaseService.getParticipants();
+    setParticipants(allParticipants);
+    const scores = await FirebaseService.getScores();
+    setAllScores(scores);
+    const allGroupTeams = await FirebaseService.getGroupTeams();
+    setGroupTeams(allGroupTeams);
+    const allGroupEvents = await FirebaseService.getGroupEvents();
+    setGroupEvents(allGroupEvents);
+    const data = await FirebaseService.getData();
+    setChampionsDeclared(data.championsDeclared || false);
+    setPointsConfig(data.pointsConfig || {
+      individual: { first: 5, second: 3, third: 1 },
+      group: { first: 10, second: 5, third: 3 }
+    });
+  };
+
   useEffect(() => {
-    if (participants.length > 0 && allScores.length > 0) {
+    if (participants.length > 0 && allScores.length > 0 && groupEvents.length > 0) {
       calculateLeaderboards();
     }
-  }, [participants, allScores, groupTeams]);
+  }, [participants, allScores, groupTeams, groupEvents]);
 
-  const calculateLeaderboards = () => {
+  const calculateLeaderboards = async () => {
     // Get declared results
-    const declaredResults = StorageService.getDeclaredResults();
+    const declaredResults = await FirebaseService.getDeclaredResults();
     
     // Calculate points for each participant across all events
     const participantPoints = {};
     
-    participants.forEach(participant => {
+    for (const participant of participants) {
       const eventIds = participant.eventIds || (participant.eventId ? [parseInt(participant.eventId)] : []);
       
-      eventIds.forEach(eventId => {
+      for (const eventId of eventIds) {
         const category = participant.ageCategory;
         
         // Check if this event-category is declared
@@ -63,12 +77,12 @@ const Leaderboard = () => {
           r => r.eventId === eventId && r.category === category
         );
         
-        if (!isDeclared) return; // Skip if result not declared
+        if (!isDeclared) continue; // Skip if result not declared
         
         // Check if this event-category is locked by all judges
-        const isLocked = StorageService.areAllJudgesLocked(eventId, category);
+        const isLocked = await FirebaseService.areAllJudgesLocked(eventId, category);
         
-        if (!isLocked) return; // Skip if not all judges locked
+        if (!isLocked) continue; // Skip if not all judges locked
         
         // Get participants for this event and category
         const eventParticipants = participants.filter(p => {
@@ -126,8 +140,8 @@ const Leaderboard = () => {
             }
           }
         });
-      });
-    });
+      }
+    }
     
     // Calculate section leaderboard
     const sectionScores = {};
@@ -149,29 +163,40 @@ const Leaderboard = () => {
     });
     
     // Add group event points
-    const data = StorageService.getData();
+    const data = await FirebaseService.getData();
     const groupLocks = data.groupEventLocks || [];
+    const judges = await FirebaseService.getJudges();
     
     groupEvents.forEach(groupEvent => {
       // Check if this group event is declared
-      const isDeclared = declaredResults.some(r => r.groupEventId === groupEvent.id);
+      const isDeclared = declaredResults.some(r => String(r.groupEventId) === String(groupEvent.id));
       
       if (!isDeclared) return;
       
       // Check if all judges have locked this group event
-      const judgeCredentials = data.judgeCredentials || [];
-      const isLocked = judgeCredentials.every(judge =>
-        groupLocks.some(lock => 
-          lock.judgeName === judge.username && 
-          lock.groupEventId === groupEvent.id && 
-          lock.locked
-        )
-      );
+      let isLocked = false;
+      if (groupEvent.scoringType === 'quiz') {
+        isLocked = groupLocks.some(lock => 
+          String(lock.groupEventId) === String(groupEvent.id) && lock.locked
+        );
+      } else {
+        isLocked = judges.length > 0 && judges.every(judge =>
+          groupLocks.some(lock => 
+            lock.judgeName === judge.username && 
+            String(lock.groupEventId) === String(groupEvent.id) && 
+            lock.locked
+          )
+        );
+      }
       
       if (!isLocked) return;
       
       // Get all teams for this event
-      const eventTeams = groupTeams.filter(t => t.groupEventId === groupEvent.id);
+      const eventTeams = groupTeams.filter(t => String(t.groupEventId) === String(groupEvent.id));
+      
+      console.log(`Group Event: ${groupEvent.name} (ID: ${groupEvent.id})`);
+      console.log(`Teams found: ${eventTeams.length}`);
+      console.log('Teams data:', eventTeams);
       
       // Calculate results
       const results = eventTeams.map(team => {
@@ -180,28 +205,35 @@ const Leaderboard = () => {
         let judgeCount = 0;
         
         if (groupEvent.scoringType === 'quiz') {
-          const quizScore = teamScores.find(s => s.score !== undefined);
+          const quizScore = teamScores.find(s => s.score !== undefined && s.score !== null);
           totalScore = quizScore ? parseFloat(quizScore.score) : 0;
           judgeCount = quizScore ? 1 : 0;
         } else {
           teamScores.forEach(score => {
-            totalScore += parseFloat(score.score);
-            judgeCount++;
+            if (score.score !== undefined && score.score !== null) {
+              totalScore += parseFloat(score.score);
+              judgeCount++;
+            }
           });
         }
         
         const averageScore = judgeCount > 0 ? 
           (groupEvent.scoringType === 'quiz' ? totalScore : totalScore / judgeCount) : 0;
         
+        console.log(`Team ${team.teamName} (Section: ${team.sectionId}): scores=${JSON.stringify(teamScores)}, total=${totalScore}, judges=${judgeCount}, avg=${averageScore}`);
+        
         return {
           teamId: team.id,
           sectionId: team.sectionId,
+          teamName: team.teamName,
           averageScore
         };
       });
       
       // Sort by average score
       results.sort((a, b) => b.averageScore - a.averageScore);
+      
+      console.log('Sorted results:', results);
       
       // Assign points based on rank
       results.forEach((result, index) => {
@@ -212,11 +244,16 @@ const Leaderboard = () => {
         else if (rank === 2) points = pointsConfig.group.second;
         else if (rank === 3) points = pointsConfig.group.third;
         
+        console.log(`Rank ${rank} - Team ${result.teamName}: ${points} points`);
+        
         // Find section name for this team
         const section = sections.find(s => s.id === result.sectionId);
         if (section && sectionScores[section.name]) {
+          console.log(`Adding ${points} points to section ${section.name}`);
           sectionScores[section.name].groupPoints += points;
           sectionScores[section.name].totalPoints += points;
+        } else {
+          console.log(`Section not found for team ${result.teamName}, sectionId: ${result.sectionId}`);
         }
       });
     });
@@ -263,14 +300,20 @@ const Leaderboard = () => {
 
   const handleLogout = () => {
     logout();
-    navigate('/admin/login');
+    startTransition(() => {
+      navigate('/admin/login');
+    });
   };
 
   const handleBackToDashboard = () => {
-    navigate('/admin/dashboard');
+    if (eventId) {
+      navigate(`/admin/event/${eventId}`);
+    } else {
+      navigate('/admin/events');
+    }
   };
 
-  const handleDeclareChampions = () => {
+  const handleDeclareChampions = async () => {
     if (sectionLeaderboard.length < 3) {
       alert('Not enough sections to declare champions. Need at least 3 sections with points.');
       return;
@@ -280,7 +323,7 @@ const Leaderboard = () => {
     const confirmMsg = `Declare Final Champions?\n\n🥇 Champion: ${topThree[0].section} (${topThree[0].totalPoints} pts)\n🥈 Runner-up: ${topThree[1].section} (${topThree[1].totalPoints} pts)\n🥉 Second Runner-up: ${topThree[2].section} (${topThree[2].totalPoints} pts)\n\nThis will finalize the competition results.`;
     
     if (window.confirm(confirmMsg)) {
-      const data = StorageService.getData();
+      const data = await FirebaseService.getData();
       data.championsDeclared = true;
       data.finalChampions = {
         champion: topThree[0],
@@ -289,18 +332,15 @@ const Leaderboard = () => {
         declaredAt: new Date().toISOString(),
         declaredBy: user?.username || 'admin'
       };
-      StorageService.saveData(data);
+      await FirebaseService.saveData(data);
       setChampionsDeclared(true);
       alert('Champions declared successfully! 🎉');
     }
   };
 
-  const handleRevertChampions = () => {
+  const handleRevertChampions = async () => {
     if (window.confirm('Revert Champions Declaration?\n\nThis will unpublish the final champions. Are you sure?')) {
-      const data = StorageService.getData();
-      data.championsDeclared = false;
-      delete data.finalChampions;
-      StorageService.saveData(data);
+      await FirebaseService.revertChampions();
       setChampionsDeclared(false);
       alert('Champions declaration reverted.');
     }
@@ -315,7 +355,7 @@ const Leaderboard = () => {
         </div>
         <div className="header-actions">
           <button onClick={handleBackToDashboard} className="btn btn-secondary">
-            Back to Dashboard
+            {eventId ? '← Back to Event' : '← Back to Events'}
           </button>
           <button onClick={handleLogout} className="btn btn-secondary">
             Logout

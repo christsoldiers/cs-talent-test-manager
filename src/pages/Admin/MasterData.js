@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, startTransition } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import StorageService from '../../services/StorageService';
+import FirebaseService from '../../services/FirebaseService';
 import './MasterData.css';
 
 const MasterData = () => {
@@ -9,6 +9,7 @@ const MasterData = () => {
   const [groupEvents, setGroupEvents] = useState([]);
   const [sections, setSections] = useState([]);
   const [judges, setJudges] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [pointsConfig, setPointsConfig] = useState({
     individual: { first: 5, second: 3, third: 1 },
     group: { first: 10, second: 5, third: 3 }
@@ -18,10 +19,12 @@ const MasterData = () => {
   const [showGroupEventForm, setShowGroupEventForm] = useState(false);
   const [showSectionForm, setShowSectionForm] = useState(false);
   const [showJudgeForm, setShowJudgeForm] = useState(false);
+  const [showCategoryForm, setShowCategoryForm] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [editingGroupEvent, setEditingGroupEvent] = useState(null);
   const [editingSection, setEditingSection] = useState(null);
   const [editingJudge, setEditingJudge] = useState(null);
+  const [editingCategory, setEditingCategory] = useState(null);
   const [eventFormData, setEventFormData] = useState({
     name: '',
     description: '',
@@ -64,6 +67,12 @@ const MasterData = () => {
     contact: '',
     email: ''
   });
+  const [categoryFormData, setCategoryFormData] = useState({
+    name: '',
+    minAge: 0,
+    maxAge: 0,
+    order: 1
+  });
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -75,21 +84,29 @@ const MasterData = () => {
     }
   }, [user, navigate]);
 
-  const loadData = () => {
-    setEvents(StorageService.getEvents());
-    setSections(StorageService.getSections());
-    const data = StorageService.getData();
-    setGroupEvents(data.groupEvents || []);
-    setJudges(data.judgeCredentials || []);
-    setPointsConfig(data.pointsConfig || {
-      individual: { first: 5, second: 3, third: 1 },
-      group: { first: 10, second: 5, third: 3 }
-    });
+  const loadData = async () => {
+    const [allEvents, allSections, allGroupEvents, judgeCredentials, pointsConfigData, allCategories] = await Promise.all([
+      FirebaseService.getEvents(),
+      FirebaseService.getSections(),
+      FirebaseService.getGroupEvents(),
+      FirebaseService.getJudgeCredentials(),
+      FirebaseService.getPointsConfig(),
+      FirebaseService.getCategories()
+    ]);
+    
+    setEvents(allEvents);
+    setSections(allSections);
+    setGroupEvents(allGroupEvents);
+    setJudges(judgeCredentials);
+    setPointsConfig(pointsConfigData);
+    setCategories(allCategories.sort((a, b) => a.order - b.order));
   };
 
   const handleLogout = () => {
     logout();
-    navigate('/admin/login');
+    startTransition(() => {
+      navigate('/admin/login');
+    });
   };
 
   const handleBackToDashboard = () => {
@@ -137,7 +154,7 @@ const MasterData = () => {
     });
   };
 
-  const handleSubmitEvent = (e) => {
+  const handleSubmitEvent = async (e) => {
     e.preventDefault();
     
     if (!eventFormData.name || eventFormData.ageGroups.length === 0) {
@@ -145,54 +162,62 @@ const MasterData = () => {
       return;
     }
 
-    const data = StorageService.getData();
+    console.log('Submitting event with data:', eventFormData);
     
-    if (editingEvent) {
-      // Update existing event
-      const eventIndex = data.events.findIndex(e => e.id === editingEvent.id);
-      if (eventIndex !== -1) {
-        data.events[eventIndex] = {
-          ...data.events[eventIndex],
+    try {
+      if (editingEvent) {
+        // Update existing event in Firestore
+        const updatedEvent = {
           name: eventFormData.name,
           description: eventFormData.description,
           ageGroups: eventFormData.ageGroups,
           scoringType: eventFormData.scoringType
         };
+        await FirebaseService.updateEvent(editingEvent.id, updatedEvent);
+        console.log('Updated event:', { id: editingEvent.id, ...updatedEvent });
+      } else {
+        // Add new event to Firestore
+        const newEvent = {
+          name: eventFormData.name,
+          description: eventFormData.description,
+          ageGroups: eventFormData.ageGroups,
+          scoringType: eventFormData.scoringType
+        };
+        await FirebaseService.addEvent(newEvent);
+        console.log('Added new event:', newEvent);
       }
-    } else {
-      // Add new event
-      const newEvent = {
-        id: Math.max(...data.events.map(e => e.id), 0) + 1,
-        name: eventFormData.name,
-        description: eventFormData.description,
-        ageGroups: eventFormData.ageGroups,
-        scoringType: eventFormData.scoringType
-      };
-      data.events.push(newEvent);
+      
+      await loadData();
+      setShowEventForm(false);
+      setEditingEvent(null);
+    } catch (error) {
+      console.error('Error saving event:', error);
+      alert('Failed to save event. Please try again.');
     }
-    
-    StorageService.saveData(data);
-    loadData();
-    setShowEventForm(false);
-    setEditingEvent(null);
   };
 
-  const handleDeleteEvent = (eventId) => {
+  const handleDeleteEvent = async (eventId) => {
     if (window.confirm('Are you sure you want to delete this event? This will also remove all associated participant registrations and scores.')) {
-      const data = StorageService.getData();
-      data.events = data.events.filter(e => e.id !== eventId);
-      
-      // Remove event from participants
-      data.participants = data.participants.map(p => ({
-        ...p,
-        eventIds: (p.eventIds || []).filter(id => id !== eventId)
-      }));
-      
-      // Remove scores for this event
-      data.scores = data.scores.filter(s => s.eventId !== eventId);
-      
-      StorageService.saveData(data);
-      loadData();
+      try {
+        await FirebaseService.deleteEvent(eventId);
+        
+        // Remove event from participants
+        const allParticipants = await FirebaseService.getParticipants();
+        for (const participant of allParticipants) {
+          if (participant.eventIds && participant.eventIds.includes(eventId)) {
+            const updatedEventIds = participant.eventIds.filter(id => id !== eventId);
+            await FirebaseService.updateParticipant(participant.id, {
+              ...participant,
+              eventIds: updatedEventIds
+            });
+          }
+        }
+        
+        await loadData();
+      } catch (error) {
+        console.error('Error deleting event:', error);
+        alert('Failed to delete event. Please try again.');
+      }
     }
   };
 
@@ -229,7 +254,7 @@ const MasterData = () => {
     });
   };
 
-  const handleSubmitGroupEvent = (e) => {
+  const handleSubmitGroupEvent = async (e) => {
     e.preventDefault();
     
     if (!groupEventFormData.name) {
@@ -237,53 +262,54 @@ const MasterData = () => {
       return;
     }
 
-    const data = StorageService.getData();
-    
-    if (editingGroupEvent) {
-      // Update existing group event
-      const eventIndex = data.groupEvents.findIndex(e => e.id === editingGroupEvent.id);
-      if (eventIndex !== -1) {
-        data.groupEvents[eventIndex] = {
-          ...data.groupEvents[eventIndex],
+    try {
+      if (editingGroupEvent) {
+        // Update existing group event
+        await FirebaseService.updateGroupEvent(editingGroupEvent.id, {
           name: groupEventFormData.name,
           description: groupEventFormData.description,
           maxParticipants: groupEventFormData.maxParticipants,
           scoringType: groupEventFormData.scoringType,
           questionsCount: groupEventFormData.questionsCount
-        };
+        });
+      } else {
+        // Add new group event
+        await FirebaseService.addGroupEvent({
+          name: groupEventFormData.name,
+          description: groupEventFormData.description,
+          maxParticipants: groupEventFormData.maxParticipants,
+          scoringType: groupEventFormData.scoringType,
+          questionsCount: groupEventFormData.questionsCount
+        });
       }
-    } else {
-      // Add new group event
-      const newGroupEvent = {
-        id: Math.max(...(data.groupEvents || []).map(e => e.id), 0) + 1,
-        name: groupEventFormData.name,
-        description: groupEventFormData.description,
-        maxParticipants: groupEventFormData.maxParticipants,
-        scoringType: groupEventFormData.scoringType,
-        questionsCount: groupEventFormData.questionsCount
-      };
-      if (!data.groupEvents) data.groupEvents = [];
-      data.groupEvents.push(newGroupEvent);
+      
+      await loadData();
+      setShowGroupEventForm(false);
+      setEditingGroupEvent(null);
+    } catch (error) {
+      console.error('Error saving group event:', error);
+      alert('Failed to save group event. Please try again.');
     }
-    
-    StorageService.saveData(data);
-    loadData();
-    setShowGroupEventForm(false);
-    setEditingGroupEvent(null);
   };
 
-  const handleDeleteGroupEvent = (groupEventId) => {
+  const handleDeleteGroupEvent = async (groupEventId) => {
     if (window.confirm('Are you sure you want to delete this group event? This will also remove all associated teams and scores.')) {
-      const data = StorageService.getData();
-      data.groupEvents = (data.groupEvents || []).filter(e => e.id !== groupEventId);
-      
-      // Remove teams for this event
-      if (data.groupTeams) {
-        data.groupTeams = data.groupTeams.filter(t => t.groupEventId !== groupEventId);
+      try {
+        await FirebaseService.deleteGroupEvent(groupEventId);
+        
+        // Remove teams for this event
+        const allTeams = await FirebaseService.getGroupTeams();
+        for (const team of allTeams) {
+          if (team.groupEventId === groupEventId) {
+            await FirebaseService.deleteGroupTeam(team.id);
+          }
+        }
+        
+        await loadData();
+      } catch (error) {
+        console.error('Error deleting group event:', error);
+        alert('Failed to delete group event. Please try again.');
       }
-      
-      StorageService.saveData(data);
-      loadData();
     }
   };
 
@@ -371,7 +397,7 @@ const MasterData = () => {
     });
   };
 
-  const handleEditSection = (section) => {
+  const handleEditSection = async (section) => {
     setShowSectionForm(true);
     setEditingSection(section);
     
@@ -384,8 +410,8 @@ const MasterData = () => {
     });
     
     // Find credentials for this section
-    const data = StorageService.getData();
-    const sectionCredential = data.sectionCredentials?.find(sc => sc.section === section.name) || {};
+    const sectionCredentials = await FirebaseService.getSectionCredentials();
+    const sectionCredential = sectionCredentials.find(sc => sc.section === section.name) || {};
     
     setSectionFormData({
       name: section.name,
@@ -399,7 +425,7 @@ const MasterData = () => {
     });
   };
 
-  const handleSubmitSection = (e) => {
+  const handleSubmitSection = async (e) => {
     e.preventDefault();
     
     const validChurches = sectionFormData.churches.filter(c => {
@@ -417,91 +443,119 @@ const MasterData = () => {
       return;
     }
 
-    const data = StorageService.getData();
-    
-    // Check for duplicate username (exclude current section when editing)
-    const duplicateCredential = data.sectionCredentials?.find(sc => 
-      sc.username === sectionFormData.username && 
-      sc.section !== (editingSection?.name || '')
-    );
-    
-    if (duplicateCredential) {
-      alert('Username already exists. Please choose a different username.');
-      return;
-    }
-    
-    if (editingSection) {
-      // Update existing section
-      const sectionIndex = data.sections.findIndex(s => s.id === editingSection.id);
-      if (sectionIndex !== -1) {
-        data.sections[sectionIndex] = {
-          ...data.sections[sectionIndex],
-          name: sectionFormData.name,
-          churches: validChurches,
-          presbyter: sectionFormData.presbyter,
-          csPresident: sectionFormData.csPresident,
-          csSecretary: sectionFormData.csSecretary,
-          csTreasurer: sectionFormData.csTreasurer
-        };
+    try {
+      const sectionCredentials = await FirebaseService.getSectionCredentials();
+      
+      // Check for duplicate username (exclude current section when editing)
+      const duplicateCredential = sectionCredentials.find(sc => 
+        sc.username === sectionFormData.username && 
+        sc.section !== (editingSection?.name || '')
+      );
+      
+      if (duplicateCredential) {
+        alert('Username already exists. Please choose a different username.');
+        return;
       }
       
-      // Update credentials
-      const credIndex = data.sectionCredentials.findIndex(sc => sc.section === editingSection.name);
-      if (credIndex !== -1) {
-        data.sectionCredentials[credIndex] = {
-          username: sectionFormData.username,
-          password: sectionFormData.password,
-          section: sectionFormData.name
-        };
+      if (editingSection) {
+        // Update existing section in Firestore
+        const churchesData = validChurches.map(c => {
+          if (typeof c === 'string') {
+            return { name: c.trim(), pastor: { name: '', contact: '' } };
+          }
+          return {
+            name: c.name.trim(),
+            pastor: c.pastor || { name: '', contact: '' }
+          };
+        });
+        
+        await FirebaseService.updateSection(editingSection.id, {
+          name: sectionFormData.name,
+          churches: churchesData,
+          presbyter: sectionFormData.presbyter || { name: '', contact: '' },
+          csPresident: sectionFormData.csPresident || { name: '', contact: '' },
+          csSecretary: sectionFormData.csSecretary || { name: '', contact: '' },
+          csTreasurer: sectionFormData.csTreasurer || { name: '', contact: '' }
+        });
+        
+        // Update credentials in config document
+        const sectionCredentials = await FirebaseService.getSectionCredentials();
+        const credIndex = sectionCredentials.findIndex(sc => sc.section === editingSection.name);
+        if (credIndex !== -1) {
+          sectionCredentials[credIndex] = {
+            username: sectionFormData.username,
+            password: sectionFormData.password,
+            section: sectionFormData.name
+          };
+        } else {
+          sectionCredentials.push({
+            username: sectionFormData.username,
+            password: sectionFormData.password,
+            section: sectionFormData.name
+          });
+        }
+        await FirebaseService.saveSectionCredentials(sectionCredentials);
       } else {
-        data.sectionCredentials.push({
+        // Add new section to Firestore
+        const churchesData = validChurches.map(c => {
+          if (typeof c === 'string') {
+            return { name: c.trim(), pastor: { name: '', contact: '' } };
+          }
+          return {
+            name: c.name.trim(),
+            pastor: c.pastor || { name: '', contact: '' }
+          };
+        });
+        
+        await FirebaseService.addSection({
+          name: sectionFormData.name,
+          churches: churchesData,
+          presbyter: sectionFormData.presbyter || { name: '', contact: '' },
+          csPresident: sectionFormData.csPresident || { name: '', contact: '' },
+          csSecretary: sectionFormData.csSecretary || { name: '', contact: '' },
+          csTreasurer: sectionFormData.csTreasurer || { name: '', contact: '' }
+        });
+        
+        // Add credentials to config document
+        const sectionCredentials = await FirebaseService.getSectionCredentials();
+        sectionCredentials.push({
           username: sectionFormData.username,
           password: sectionFormData.password,
           section: sectionFormData.name
         });
+        await FirebaseService.saveSectionCredentials(sectionCredentials);
       }
-    } else {
-      // Add new section
-      const newSection = {
-        id: Math.max(...data.sections.map(s => s.id), 0) + 1,
-        name: sectionFormData.name,
-        churches: validChurches,
-        presbyter: sectionFormData.presbyter,
-        csPresident: sectionFormData.csPresident,
-        csSecretary: sectionFormData.csSecretary,
-        csTreasurer: sectionFormData.csTreasurer
-      };
-      data.sections.push(newSection);
       
-      // Add credentials
-      data.sectionCredentials.push({
-        username: sectionFormData.username,
-        password: sectionFormData.password,
-        section: sectionFormData.name
-      });
+      await loadData();
+      setShowSectionForm(false);
+      setEditingSection(null);
+    } catch (error) {
+      console.error('Error saving section:', error);
+      alert('Failed to save section. Please try again.');
     }
-    
-    StorageService.saveData(data);
-    loadData();
-    setShowSectionForm(false);
-    setEditingSection(null);
   };
 
-  const handleDeleteSection = (sectionId) => {
+  const handleDeleteSection = async (sectionId) => {
     if (window.confirm('Are you sure you want to delete this section? This will affect all participants from this section.')) {
-      const data = StorageService.getData();
-      const sectionToDelete = data.sections.find(s => s.id === sectionId);
-      
-      // Remove section
-      data.sections = data.sections.filter(s => s.id !== sectionId);
-      
-      // Remove associated credentials
-      if (sectionToDelete) {
-        data.sectionCredentials = data.sectionCredentials.filter(sc => sc.section !== sectionToDelete.name);
+      try {
+        const sections = await FirebaseService.getSections();
+        const sectionToDelete = sections.find(s => s.id === sectionId);
+        
+        // Remove section from Firestore
+        await FirebaseService.deleteSection(sectionId);
+        
+        // Remove associated credentials from config
+        if (sectionToDelete) {
+          const sectionCredentials = await FirebaseService.getSectionCredentials();
+          const updatedCredentials = sectionCredentials.filter(sc => sc.section !== sectionToDelete.name);
+          await FirebaseService.saveSectionCredentials(updatedCredentials);
+        }
+        
+        await loadData();
+      } catch (error) {
+        console.error('Error deleting section:', error);
+        alert('Failed to delete section. Please try again.');
       }
-      
-      StorageService.saveData(data);
-      loadData();
     }
   };
 
@@ -538,7 +592,7 @@ const MasterData = () => {
     });
   };
 
-  const handleSubmitJudge = (e) => {
+  const handleSubmitJudge = async (e) => {
     e.preventDefault();
     
     if (!judgeFormData.username || !judgeFormData.password) {
@@ -546,60 +600,144 @@ const MasterData = () => {
       return;
     }
 
-    const data = StorageService.getData();
-    
-    if (editingJudge) {
-      // Update existing judge
-      const judgeIndex = data.judgeCredentials.findIndex(j => j.username === editingJudge.username);
-      if (judgeIndex !== -1) {
-        data.judgeCredentials[judgeIndex] = {
+    try {
+      const judgeCredentials = await FirebaseService.getJudgeCredentials();
+      
+      if (editingJudge) {
+        // Update existing judge
+        const judgeIndex = judgeCredentials.findIndex(j => j.username === editingJudge.username);
+        if (judgeIndex !== -1) {
+          judgeCredentials[judgeIndex] = {
+            username: judgeFormData.username,
+            password: judgeFormData.password,
+            name: judgeFormData.name,
+            contact: judgeFormData.contact,
+            email: judgeFormData.email
+          };
+        }
+      } else {
+        // Check if username already exists
+        if (judgeCredentials.find(j => j.username === judgeFormData.username)) {
+          alert('Username already exists. Please choose a different username.');
+          return;
+        }
+        
+        // Add new judge
+        judgeCredentials.push({
           username: judgeFormData.username,
           password: judgeFormData.password,
           name: judgeFormData.name,
           contact: judgeFormData.contact,
           email: judgeFormData.email
-        };
-      }
-    } else {
-      // Check if username already exists
-      if (data.judgeCredentials.find(j => j.username === judgeFormData.username)) {
-        alert('Username already exists. Please choose a different username.');
-        return;
+        });
       }
       
-      // Add new judge
-      data.judgeCredentials.push({
-        username: judgeFormData.username,
-        password: judgeFormData.password,
-        name: judgeFormData.name,
-        contact: judgeFormData.contact,
-        email: judgeFormData.email
-      });
+      await FirebaseService.saveJudgeCredentials(judgeCredentials);
+      await loadData();
+      setShowJudgeForm(false);
+      setEditingJudge(null);
+    } catch (error) {
+      console.error('Error saving judge:', error);
+      alert('Failed to save judge. Please try again.');
     }
-    
-    StorageService.saveData(data);
-    loadData();
-    setShowJudgeForm(false);
-    setEditingJudge(null);
   };
 
-  const handleDeleteJudge = (username) => {
+  const handleDeleteJudge = async (username) => {
     if (window.confirm('Are you sure you want to delete this judge? This will also remove all scores submitted by this judge.')) {
-      const data = StorageService.getData();
-      data.judgeCredentials = data.judgeCredentials.filter(j => j.username !== username);
-      
-      // Remove scores submitted by this judge
-      data.scores = data.scores.filter(s => s.judgeName !== username);
-      
-      // Remove judge locks
-      data.judgeLocks = data.judgeLocks.filter(l => l.judgeName !== username);
-      
-      StorageService.saveData(data);
-      loadData();
+      try {
+        const judgeCredentials = await FirebaseService.getJudgeCredentials();
+        const updatedCredentials = judgeCredentials.filter(j => j.username !== username);
+        
+        // Delete judge credentials
+        await FirebaseService.saveJudgeCredentials(updatedCredentials);
+        
+        // Remove scores submitted by this judge
+        await FirebaseService.deleteScoresByJudge(username);
+        
+        // Remove judge locks
+        await FirebaseService.deleteJudgeLocksByJudge(username);
+        
+        await loadData();
+      } catch (error) {
+        console.error('Error deleting judge:', error);
+        alert('Failed to delete judge. Please try again.');
+      }
     }
   };
 
-  const ageGroupOptions = ['Junior', 'Intermediate', 'Senior', 'Super Senior'];
+  // Category Handlers
+  const handleAddCategory = () => {
+    setShowCategoryForm(true);
+    setEditingCategory(null);
+    setCategoryFormData({
+      name: '',
+      minAge: 0,
+      maxAge: 0,
+      order: categories.length + 1
+    });
+  };
+
+  const handleEditCategory = (category) => {
+    setShowCategoryForm(true);
+    setEditingCategory(category);
+    setCategoryFormData({
+      name: category.name,
+      minAge: category.minAge,
+      maxAge: category.maxAge,
+      order: category.order
+    });
+  };
+
+  const handleCategoryFormChange = (e) => {
+    const { name, value } = e.target;
+    setCategoryFormData(prev => ({
+      ...prev,
+      [name]: name === 'minAge' || name === 'maxAge' || name === 'order' ? parseInt(value) || 0 : value
+    }));
+  };
+
+  const handleSubmitCategory = async (e) => {
+    e.preventDefault();
+    
+    if (!categoryFormData.name || categoryFormData.minAge < 0 || categoryFormData.maxAge < 0) {
+      alert('Please fill in all required fields with valid values');
+      return;
+    }
+
+    if (categoryFormData.minAge >= categoryFormData.maxAge) {
+      alert('Minimum age must be less than maximum age');
+      return;
+    }
+
+    try {
+      if (editingCategory) {
+        await FirebaseService.updateCategory(editingCategory.id, categoryFormData);
+      } else {
+        await FirebaseService.addCategory(categoryFormData);
+      }
+      
+      await loadData();
+      setShowCategoryForm(false);
+      setEditingCategory(null);
+    } catch (error) {
+      console.error('Error saving category:', error);
+      alert('Failed to save category. Please try again.');
+    }
+  };
+
+  const handleDeleteCategory = async (categoryId) => {
+    if (window.confirm('Are you sure you want to delete this category? This may affect event registrations.')) {
+      try {
+        await FirebaseService.deleteCategory(categoryId);
+        await loadData();
+      } catch (error) {
+        console.error('Error deleting category:', error);
+        alert('Failed to delete category. Please try again.');
+      }
+    }
+  };
+
+  const ageGroupOptions = categories.map(c => c.name);
 
   return (
     <div className="master-data-view">
@@ -642,6 +780,12 @@ const MasterData = () => {
           onClick={() => setActiveTab('judges')}
         >
           👨‍⚖️ Judges
+        </button>
+        <button
+          className={`tab ${activeTab === 'categories' ? 'active' : ''}`}
+          onClick={() => setActiveTab('categories')}
+        >
+          📊 Age Categories
         </button>
         <button
           className={`tab ${activeTab === 'points' ? 'active' : ''}`}
@@ -1537,10 +1681,8 @@ const MasterData = () => {
             </div>
 
             <button
-              onClick={() => {
-                const data = StorageService.getData();
-                data.pointsConfig = pointsConfig;
-                StorageService.saveData(data);
+              onClick={async () => {
+                await FirebaseService.savePointsConfig(pointsConfig);
                 alert('Points configuration saved successfully!');
               }}
               className="btn btn-primary"
@@ -1549,6 +1691,150 @@ const MasterData = () => {
               Save Points Configuration
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Categories Tab */}
+      {activeTab === 'categories' && (
+        <div className="card">
+          <div className="card-header-actions">
+            <h2>Age Category Management</h2>
+            <button onClick={handleAddCategory} className="btn btn-primary">
+              + Add Category
+            </button>
+          </div>
+
+          <div className="category-container">
+            <div className="category-table-wrapper">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Order</th>
+                    <th>Category Name</th>
+                    <th>Age Range</th>
+                    <th>Chest # Prefix</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categories.map(category => (
+                    <tr key={category.id}>
+                      <td>{category.order}</td>
+                      <td><strong>{category.name}</strong></td>
+                      <td>{category.minAge} - {category.maxAge} years</td>
+                      <td><strong>{category.name.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase()).join('')}</strong></td>
+                      <td className="actions">
+                        <button
+                          onClick={() => handleEditCategory(category)}
+                          className="btn btn-sm btn-secondary"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCategory(category.id)}
+                          className="btn btn-sm btn-danger"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {categories.length === 0 && (
+                    <tr>
+                      <td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: '#718096' }}>
+                        <div>
+                          <p style={{ fontSize: '1.1rem', marginBottom: '10px' }}>📊 No categories found</p>
+                          <p style={{ fontSize: '0.9rem' }}>Click "Add Category" to create your first age category.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {showCategoryForm && (
+            <div className="modal-overlay">
+              <div className="modal-content category-form-content">
+                <h3>{editingCategory ? 'Edit Category' : 'Add New Category'}</h3>
+                <form onSubmit={handleSubmitCategory} className="category-form-grid">
+                  <div className="form-group">
+                    <label>Category Name *</label>
+                    <input
+                      type="text"
+                      name="name"
+                      value={categoryFormData.name}
+                      onChange={handleCategoryFormChange}
+                      placeholder="e.g., Junior, Intermediate, Senior"
+                      required
+                    />
+                    <small style={{ color: '#718096', fontSize: '0.85rem', marginTop: '5px', display: 'block' }}>
+                      Chest number prefix will be auto-generated from category name
+                    </small>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Minimum Age *</label>
+                      <input
+                        type="number"
+                        name="minAge"
+                        value={categoryFormData.minAge}
+                        onChange={handleCategoryFormChange}
+                        min="0"
+                        placeholder="6"
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label>Maximum Age *</label>
+                      <input
+                        type="number"
+                        name="maxAge"
+                        value={categoryFormData.maxAge}
+                        onChange={handleCategoryFormChange}
+                        min="0"
+                        placeholder="10"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Display Order</label>
+                    <input
+                      type="number"
+                      name="order"
+                      value={categoryFormData.order}
+                      onChange={handleCategoryFormChange}
+                      min="1"
+                    />
+                    <small style={{ color: '#718096', fontSize: '0.85rem', marginTop: '5px' }}>
+                      Categories will be displayed in this order
+                    </small>
+                  </div>
+
+                  <div className="form-actions">
+                    <button type="submit" className="btn btn-primary">
+                      {editingCategory ? 'Update Category' : 'Add Category'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCategoryForm(false);
+                        setEditingCategory(null);
+                      }}
+                      className="btn btn-secondary"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -16,8 +16,8 @@
   justify-content: space-between;
   align-items: center;
   width: 100%;
-  max-width: 1200px;
-  padding: 0 50px;
+  max-width: 1600px;
+  padding: 0 40px;
 }
 
 .navbar-logo {
@@ -73,6 +73,20 @@
 
 .admin-link:hover {
   background-color: rgba(255, 255, 255, 0.25);
+}
+
+.user-info {
+  background-color: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  margin-left: 10px;
+  cursor: default;
+  font-size: 0.9rem;
+  padding: 0.5rem 1.2rem;
+}
+
+.user-info:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+  transform: none;
 }
 
 .menu-icon {

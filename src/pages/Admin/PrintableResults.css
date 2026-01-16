@@ -1,10 +1,10 @@
 .printable-results-view {
   padding: 20px;
-  max-width: 1400px;
+  max-width: 1600px;
   margin: 0 auto;
 }
 
-.dashboard-header {
+.printable-results-view .dashboard-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -13,22 +13,22 @@
   border-bottom: 2px solid #ddd;
 }
 
-.dashboard-header h1 {
+.printable-results-view .dashboard-header h1 {
   margin: 0 0 5px 0;
   color: #333;
 }
 
-.dashboard-header p {
+.printable-results-view .dashboard-header p {
   margin: 0;
   color: #666;
 }
 
-.header-actions {
+.printable-results-view .header-actions {
   display: flex;
   gap: 10px;
 }
 
-.btn {
+.printable-results-view .btn {
   padding: 10px 20px;
   border: none;
   border-radius: 6px;
@@ -38,22 +38,22 @@
   transition: all 0.3s ease;
 }
 
-.btn-primary {
+.printable-results-view .btn-primary {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
 }
 
-.btn-primary:hover {
+.printable-results-view .btn-primary:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
-.btn-secondary {
+.printable-results-view .btn-secondary {
   background: #6c757d;
   color: white;
 }
 
-.btn-secondary:hover {
+.printable-results-view .btn-secondary:hover {
   background: #5a6268;
 }
 
@@ -117,14 +117,14 @@
   border-radius: 4px;
 }
 
-.events-grid {
+.printable-results-view .events-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
   gap: 25px;
   margin-bottom: 20px;
 }
 
-.event-results-card {
+.printable-results-view .event-results-card {
   background: white;
   border: 1px solid #ddd;
   border-radius: 8px;
@@ -285,12 +285,12 @@
     page-break-after: avoid;
   }
 
-  .events-grid {
+  .printable-results-view .events-grid {
     grid-template-columns: 1fr;
     gap: 15px;
   }
 
-  .event-results-card {
+  .printable-results-view .event-results-card {
     border: 1px solid #333;
     page-break-inside: avoid;
     margin-bottom: 15px;
@@ -359,26 +359,26 @@
 
 /* Responsive */
 @media (max-width: 768px) {
-  .dashboard-header {
+  .printable-results-view .dashboard-header {
     flex-direction: column;
     align-items: flex-start;
     gap: 15px;
   }
 
-  .header-actions {
+  .printable-results-view .header-actions {
     width: 100%;
     flex-direction: column;
   }
 
-  .header-actions button {
+  .printable-results-view .header-actions button {
     width: 100%;
   }
 
-  .events-grid {
+  .printable-results-view .events-grid {
     grid-template-columns: 1fr;
   }
 
-  .print-content {
+  .printable-results-view .print-content {
     padding: 20px;
   }
 

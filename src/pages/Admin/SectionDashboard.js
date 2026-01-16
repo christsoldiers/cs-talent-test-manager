@@ -1,13 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, startTransition } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import StorageService from '../../services/StorageService';
-import './AdminDashboard.css';
+import FirebaseService from '../../services/FirebaseService';
+import './SectionDashboard.css';
 
 const SectionDashboard = () => {
   const [participants, setParticipants] = useState([]);
-  const [events] = useState(StorageService.getEvents());
+  const [events, setEvents] = useState([]);
+  const [talentTestEvents, setTalentTestEvents] = useState([]);
+  const [activeEvent, setActiveEvent] = useState(null);
   const [availableChurches, setAvailableChurches] = useState([]);
+  const [ageLimits, setAgeLimits] = useState({ minAge: 6, maxAge: 25 });
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingParticipant, setEditingParticipant] = useState(null);
   const [formData, setFormData] = useState({
@@ -18,7 +21,8 @@ const SectionDashboard = () => {
     phone: '',
     eventIds: [],
     churchName: '',
-    section: ''
+    section: '',
+    talentTestEventId: ''
   });
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -29,16 +33,42 @@ const SectionDashboard = () => {
     } else {
       // Set section in form data
       setFormData(prev => ({ ...prev, section: user.section }));
-      // Load churches for this section
-      const churches = StorageService.getChurchesBySection(user.section);
-      setAvailableChurches(churches);
-      loadParticipants();
+      // Load data
+      loadData();
     }
   }, [user, navigate]);
 
-  const loadParticipants = () => {
+  const loadData = async () => {
+    const allEvents = await FirebaseService.getEvents();
+    setEvents(allEvents);
+    
+    // Load age limits from categories
+    const limits = await FirebaseService.getMinMaxAge();
+    setAgeLimits(limits);
+    
+    // Load talent test events
+    const ttEvents = await FirebaseService.getTalentTestEvents();
+    setTalentTestEvents(ttEvents);
+    
+    // Get active event
+    const active = await FirebaseService.getActiveTalentTestEvent();
+    setActiveEvent(active);
+    
+    // Set default talent test event if available
+    if (active && !formData.talentTestEventId) {
+      setFormData(prev => ({ ...prev, talentTestEventId: active.id }));
+    }
+    
+    // Load churches for this section
+    const churches = await FirebaseService.getChurchesBySection(user.section);
+    const churchNames = churches.map(c => typeof c === 'string' ? c : c.name);
+    setAvailableChurches(churchNames);
+    loadParticipants();
+  };
+
+  const loadParticipants = async () => {
     if (user && user.section) {
-      const sectionParticipants = StorageService.getParticipantsBySection(user.section);
+      const sectionParticipants = await FirebaseService.getParticipantsBySection(user.section);
       setParticipants(sectionParticipants);
     }
   };
@@ -81,13 +111,14 @@ const SectionDashboard = () => {
     setFormData(updatedFormData);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const age = parseInt(formData.age);
-    const ageCategory = StorageService.getAgeCategory(age);
+    const ageCategory = await FirebaseService.getAgeCategory(age);
 
     if (!ageCategory) {
-      alert('Age must be between 6 and 25 years');
+      const { minAge, maxAge } = await FirebaseService.getMinMaxAge();
+      alert(`Age must be between ${minAge} and ${maxAge} years`);
       return;
     }
 
@@ -104,10 +135,10 @@ const SectionDashboard = () => {
     };
 
     if (editingParticipant) {
-      StorageService.updateParticipant(editingParticipant.id, participantData);
+      await FirebaseService.updateParticipant(editingParticipant.id, participantData);
       setEditingParticipant(null);
     } else {
-      StorageService.addParticipant(participantData);
+      await FirebaseService.addParticipant(participantData);
     }
 
     resetForm();
@@ -123,7 +154,8 @@ const SectionDashboard = () => {
       phone: '',
       eventIds: [],
       churchName: '',
-      section: user.section
+      section: user.section,
+      talentTestEventId: activeEvent ? activeEvent.id : ''
     });
     setShowAddForm(false);
     setEditingParticipant(null);
@@ -145,14 +177,15 @@ const SectionDashboard = () => {
       phone: participant.phone,
       eventIds: eventIds,
       churchName: participant.churchName,
-      section: user.section
+      section: user.section,
+      talentTestEventId: participant.talentTestEventId || (activeEvent ? activeEvent.id : '')
     });
     setShowAddForm(true);
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this participant?')) {
-      StorageService.deleteParticipant(id);
+      await FirebaseService.deleteParticipant(id);
       loadParticipants();
     }
   };
@@ -390,7 +423,9 @@ const SectionDashboard = () => {
 
   const handleLogout = () => {
     logout();
-    navigate('/section/login');
+    startTransition(() => {
+      navigate('/section/login');
+    });
   };
 
   const stats = {
@@ -402,7 +437,7 @@ const SectionDashboard = () => {
   };
 
   return (
-    <div className="admin-dashboard">
+    <div className="section-dashboard">
       <div className="dashboard-header">
         <div>
           <h1>{user?.section} Section Dashboard</h1>
@@ -449,6 +484,31 @@ const SectionDashboard = () => {
         <div className="card">
           <h2>{editingParticipant ? 'Edit Participant' : 'Add New Participant'}</h2>
           <form onSubmit={handleSubmit} className="participant-form">
+            <div className="form-group">
+              <label htmlFor="talentTestEventId">Talent Test Event *</label>
+              <select
+                id="talentTestEventId"
+                name="talentTestEventId"
+                value={formData.talentTestEventId}
+                onChange={handleChange}
+                required
+              >
+                <option value="">Select Event</option>
+                {talentTestEvents
+                  .filter(e => e.registrationOpen)
+                  .map(event => (
+                    <option key={event.id} value={event.id}>
+                      {event.name} {event.id === activeEvent?.id && '(Active)'}
+                    </option>
+                  ))}
+              </select>
+              {!activeEvent && talentTestEvents.filter(e => e.registrationOpen).length === 0 && (
+                <p style={{ color: '#dc3545', fontSize: '14px', marginTop: '5px' }}>
+                  ⚠️ No talent test events with open registration
+                </p>
+              )}
+            </div>
+
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="name">Full Name *</label>
@@ -469,8 +529,8 @@ const SectionDashboard = () => {
                   name="age"
                   value={formData.age}
                   onChange={handleChange}
-                  min="6"
-                  max="25"
+                  min={ageLimits.minAge}
+                  max={ageLimits.maxAge}
                   required
                 />
               </div>
@@ -557,11 +617,14 @@ const SectionDashboard = () => {
                   required
                 >
                   <option value="">Select Church</option>
-                  {availableChurches.map((church, index) => (
-                    <option key={index} value={church}>
-                      {church}
-                    </option>
-                  ))}
+                  {availableChurches.map((church, index) => {
+                    const churchName = typeof church === 'string' ? church : church.name;
+                    return (
+                      <option key={index} value={churchName}>
+                        {churchName}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             </div>

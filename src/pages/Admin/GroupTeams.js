@@ -1,24 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, startTransition } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import StorageService from '../../services/StorageService';
+import FirebaseService from '../../services/FirebaseService';
 import './GroupTeams.css';
 
 const GroupTeams = () => {
   const [groupEvents, setGroupEvents] = useState([]);
+  const [talentTestEvents, setTalentTestEvents] = useState([]);
   const [sections, setSections] = useState([]);
   const [teams, setTeams] = useState([]);
   const [showTeamForm, setShowTeamForm] = useState(false);
   const [editingTeam, setEditingTeam] = useState(null);
+  const [currentEvent, setCurrentEvent] = useState(null);
   const [teamFormData, setTeamFormData] = useState({
     groupEventId: '',
     sectionId: '',
     teamName: '',
     chestNumber: '',
-    participants: ['']
+    participants: [''],
+    talentTestEventId: ''
   });
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const eventId = location.state?.eventId;
 
   useEffect(() => {
     if (!user || user.role !== 'admin') {
@@ -28,27 +33,58 @@ const GroupTeams = () => {
     }
   }, [user, navigate]);
 
-  const loadData = () => {
-    const data = StorageService.getData();
-    setGroupEvents(data.groupEvents || []);
-    setSections(StorageService.getSections());
-    setTeams(data.groupTeams || []);
+  const loadData = async () => {
+    // Load group events from Firebase
+    const allGroupEvents = await FirebaseService.getGroupEvents();
+    setGroupEvents(allGroupEvents);
+    
+    const allSections = await FirebaseService.getSections();
+    setSections(allSections);
+    
+    const ttEvents = await FirebaseService.getTalentTestEvents();
+    setTalentTestEvents(ttEvents);
+    
+    // Load all teams
+    const allTeams = await FirebaseService.getGroupTeams();
+    
+    if (eventId) {
+      const event = await FirebaseService.getTalentTestEventById(eventId);
+      setCurrentEvent(event);
+      setTeamFormData(prev => ({ ...prev, talentTestEventId: eventId }));
+      
+      // Filter teams by event
+      const filtered = allTeams.filter(t => t.talentTestEventId === eventId);
+      setTeams(filtered);
+    } else {
+      setTeams(allTeams);
+      
+      const activeEvent = await FirebaseService.getActiveTalentTestEvent();
+      if (activeEvent && !teamFormData.talentTestEventId) {
+        setTeamFormData(prev => ({ ...prev, talentTestEventId: activeEvent.id }));
+      }
+    }
   };
 
   const handleLogout = () => {
     logout();
-    navigate('/admin/login');
+    startTransition(() => {
+      navigate('/admin/login');
+    });
   };
 
   const handleBackToDashboard = () => {
-    navigate('/admin/dashboard');
+    if (eventId) {
+      navigate(`/admin/event/${eventId}`);
+    } else {
+      navigate('/admin/dashboard');
+    }
   };
 
   const handleTeamFormChange = (e) => {
     const { name, value } = e.target;
     setTeamFormData(prev => ({
       ...prev,
-      [name]: name === 'groupEventId' || name === 'sectionId' ? parseInt(value) : value
+      [name]: value
     }));
   };
 
@@ -74,21 +110,27 @@ const GroupTeams = () => {
   };
 
   const handleRemoveParticipant = (index) => {
-    setTeamFormData(prev => ({
-      ...prev,
-      participants: prev.participants.filter((_, i) => i !== index)
-    }));
+    if (teamFormData.participants.length > 1) {
+      const newParticipants = teamFormData.participants.filter((_, i) => i !== index);
+      setTeamFormData(prev => ({
+        ...prev,
+        participants: newParticipants
+      }));
+    }
   };
 
   const handleAddTeam = () => {
     setShowTeamForm(true);
     setEditingTeam(null);
+    // Auto-set talent test event ID from current event or active event
+    const talentTestEventId = eventId || currentEvent?.id || talentTestEvents.find(e => e.registrationOpen)?.id || '';
     setTeamFormData({
       groupEventId: '',
       sectionId: '',
       teamName: '',
       chestNumber: '',
-      participants: ['']
+      participants: [''],
+      talentTestEventId
     });
   };
 
@@ -100,13 +142,13 @@ const GroupTeams = () => {
       sectionId: team.sectionId,
       teamName: team.teamName,
       chestNumber: team.chestNumber || '',
-      participants: team.participants.length > 0 ? team.participants : ['']
+      participants: team.participants.length > 0 ? team.participants : [''],
+      talentTestEventId: team.talentTestEventId || eventId || ''
     });
   };
 
-  const generateChestNumber = (groupEventId, sectionId) => {
-    const data = StorageService.getData();
-    const allTeams = data.groupTeams || [];
+  const generateChestNumber = async (groupEventId, sectionId) => {
+    const allTeams = await FirebaseService.getGroupTeams();
     
     // Get the event to determine prefix
     const event = groupEvents.find(e => e.id === groupEventId);
@@ -145,24 +187,29 @@ const GroupTeams = () => {
     return `${prefix}${String(maxNumber + 1).padStart(3, '0')}`;
   };
 
-  const handleAutoGenerateChestNumber = () => {
+  const handleAutoGenerateChestNumber = async () => {
     if (!teamFormData.groupEventId || !teamFormData.sectionId) {
       alert('Please select event and section first');
       return;
     }
     
-    const chestNumber = generateChestNumber(teamFormData.groupEventId, teamFormData.sectionId);
+    const chestNumber = await generateChestNumber(teamFormData.groupEventId, teamFormData.sectionId);
     setTeamFormData(prev => ({
       ...prev,
       chestNumber
     }));
   };
 
-  const handleSubmitTeam = (e) => {
+  const handleSubmitTeam = async (e) => {
     e.preventDefault();
 
     if (!teamFormData.groupEventId || !teamFormData.sectionId || !teamFormData.teamName || !teamFormData.chestNumber) {
       alert('Please fill in all required fields');
+      return;
+    }
+
+    if (!teamFormData.talentTestEventId) {
+      alert('Talent Test Event is required');
       return;
     }
 
@@ -172,12 +219,13 @@ const GroupTeams = () => {
       return;
     }
 
-    const data = StorageService.getData();
+    const allTeams = await FirebaseService.getGroupTeams();
 
     // Check if section already has a team for this event (one team per section rule)
-    const existingTeam = (data.groupTeams || []).find(t => 
+    const existingTeam = allTeams.find(t => 
       t.groupEventId === teamFormData.groupEventId && 
       t.sectionId === teamFormData.sectionId &&
+      t.talentTestEventId === teamFormData.talentTestEventId &&
       t.id !== editingTeam?.id
     );
 
@@ -186,46 +234,37 @@ const GroupTeams = () => {
       return;
     }
 
-    if (!data.groupTeams) data.groupTeams = [];
-
     if (editingTeam) {
       // Update existing team
-      const teamIndex = data.groupTeams.findIndex(t => t.id === editingTeam.id);
-      if (teamIndex !== -1) {
-        data.groupTeams[teamIndex] = {
-          ...data.groupTeams[teamIndex],
-          groupEventId: teamFormData.groupEventId,
-          sectionId: teamFormData.sectionId,
-          teamName: teamFormData.teamName,
-          chestNumber: teamFormData.chestNumber,
-          participants: validParticipants
-        };
-      }
-    } else {
-      // Add new team
-      const newTeam = {
-        id: Math.max(...(data.groupTeams.map(t => t.id)), 0) + 1,
+      await FirebaseService.updateGroupTeam(editingTeam.id, {
         groupEventId: teamFormData.groupEventId,
         sectionId: teamFormData.sectionId,
         teamName: teamFormData.teamName,
         chestNumber: teamFormData.chestNumber,
         participants: validParticipants,
-        scores: [] // Will be populated by judges
-      };
-      data.groupTeams.push(newTeam);
+        talentTestEventId: teamFormData.talentTestEventId
+      });
+    } else {
+      // Add new team
+      await FirebaseService.addGroupTeam({
+        groupEventId: teamFormData.groupEventId,
+        sectionId: teamFormData.sectionId,
+        teamName: teamFormData.teamName,
+        chestNumber: teamFormData.chestNumber,
+        participants: validParticipants,
+        talentTestEventId: teamFormData.talentTestEventId,
+        scores: []
+      });
     }
 
-    StorageService.saveData(data);
     loadData();
     setShowTeamForm(false);
     setEditingTeam(null);
   };
 
-  const handleDeleteTeam = (teamId) => {
+  const handleDeleteTeam = async (teamId) => {
     if (window.confirm('Are you sure you want to delete this team?')) {
-      const data = StorageService.getData();
-      data.groupTeams = (data.groupTeams || []).filter(t => t.id !== teamId);
-      StorageService.saveData(data);
+      await FirebaseService.deleteGroupTeam(teamId);
       loadData();
     }
   };
@@ -240,9 +279,9 @@ const GroupTeams = () => {
     return section ? section.name : 'Unknown';
   };
 
-  const handleGenerateAllChestNumbers = () => {
-    const data = StorageService.getData();
-    const teamsToUpdate = (data.groupTeams || []).filter(t => !t.chestNumber);
+  const handleGenerateAllChestNumbers = async () => {
+    const allTeams = await FirebaseService.getGroupTeams();
+    const teamsToUpdate = allTeams.filter(t => !t.chestNumber);
     
     if (teamsToUpdate.length === 0) {
       alert('All teams already have chest numbers assigned!');
@@ -250,15 +289,11 @@ const GroupTeams = () => {
     }
     
     if (window.confirm(`Generate chest numbers for ${teamsToUpdate.length} team(s)?`)) {
-      teamsToUpdate.forEach(team => {
-        const chestNumber = generateChestNumber(team.groupEventId, team.sectionId);
-        const teamIndex = data.groupTeams.findIndex(t => t.id === team.id);
-        if (teamIndex !== -1) {
-          data.groupTeams[teamIndex].chestNumber = chestNumber;
-        }
-      });
+      for (const team of teamsToUpdate) {
+        const chestNumber = await generateChestNumber(team.groupEventId, team.sectionId);
+        await FirebaseService.updateGroupTeam(team.id, { chestNumber });
+      }
       
-      StorageService.saveData(data);
       loadData();
       alert(`Successfully assigned ${teamsToUpdate.length} chest numbers!`);
     }
@@ -268,12 +303,22 @@ const GroupTeams = () => {
     <div className="group-teams-view">
       <div className="dashboard-header">
         <div>
+          {currentEvent && (
+            <div className="breadcrumb">
+              <button onClick={handleBackToDashboard} className="btn-link">
+                ← {currentEvent.name}
+              </button>
+            </div>
+          )}
           <h1>👥 Group Teams Management</h1>
           <p>Admin: {user?.username}</p>
+          {currentEvent && (
+            <p className="subtitle">Viewing teams for: {currentEvent.name}</p>
+          )}
         </div>
         <div className="header-actions">
           <button onClick={handleBackToDashboard} className="btn btn-secondary">
-            Back to Dashboard
+            {eventId ? '← Back to Event' : '← Back to Events'}
           </button>
           <button onClick={handleLogout} className="btn btn-secondary">
             Logout

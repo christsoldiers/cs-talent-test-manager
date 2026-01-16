@@ -2,16 +2,15 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
-// Your web app's Firebase configuration
-// TODO: Replace with your actual Firebase config from Firebase Console
+// Your web app's Firebase configuration loaded from environment variables
 const firebaseConfig = {
-  apiKey: "AIzaSyAuRvDyTlGQY7pF0tZSjNL40ht7d94lBB0",
-  authDomain: "bga-cs-talent-test-app.firebaseapp.com",
-  projectId: "bga-cs-talent-test-app",
-  storageBucket: "bga-cs-talent-test-app.firebasestorage.app",
-  messagingSenderId: "588423733482",
-  appId: "1:588423733482:web:c62cd3acf645875f77f793",
-  measurementId: "G-2X6ZPX2Q5N"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
 };
 
 // Initialize Firebase

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, startTransition } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import StorageService from '../../services/StorageService';
+import FirebaseService from '../../services/FirebaseService';
 import './GroupResults.css';
 
 const GroupResults = () => {
@@ -10,57 +10,150 @@ const GroupResults = () => {
   const [sections, setSections] = useState([]);
   const [selectedGroupEventId, setSelectedGroupEventId] = useState('');
   const [declaredResults, setDeclaredResults] = useState([]);
+  const [isCurrentEventLocked, setIsCurrentEventLocked] = useState(false);
+  const [isCurrentEventDeclared, setIsCurrentEventDeclared] = useState(false);
+  const [hasTeams, setHasTeams] = useState(true);
+  const [judgeLockStatus, setJudgeLockStatus] = useState([]);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const eventId = location.state?.eventId;
 
   useEffect(() => {
     if (!user || user.role !== 'admin') {
       navigate('/admin/login');
     } else {
-      const data = StorageService.getData();
-      setGroupEvents(data.groupEvents || []);
-      setGroupTeams(data.groupTeams || []);
-      setSections(StorageService.getSections());
-      setDeclaredResults(StorageService.getDeclaredResults());
+      loadData();
     }
   }, [user, navigate]);
 
+  const loadData = async () => {
+    const allGroupEvents = await FirebaseService.getGroupEvents();
+    setGroupEvents(allGroupEvents);
+    const allGroupTeams = await FirebaseService.getGroupTeams();
+    setGroupTeams(allGroupTeams);
+    const allSections = await FirebaseService.getSections();
+    setSections(allSections);
+    const declaredResults = await FirebaseService.getDeclaredResults();
+    setDeclaredResults(declaredResults);
+  };
+
+  useEffect(() => {
+    const checkEventStatus = async () => {
+      if (!selectedGroupEventId) {
+        setIsCurrentEventLocked(false);
+        setIsCurrentEventDeclared(false);
+        setHasTeams(true);
+        setJudgeLockStatus([]);
+        return;
+      }
+
+      const eventId = parseInt(selectedGroupEventId);
+      
+      // Check if teams exist for this event (compare as both string and number)
+      const eventTeams = groupTeams.filter(t => 
+        String(t.groupEventId) === String(selectedGroupEventId) || 
+        t.groupEventId === eventId
+      );
+      setHasTeams(eventTeams.length > 0);
+      
+      const declared = await FirebaseService.isGroupResultDeclared(selectedGroupEventId);
+      console.log('Debug - Is Group Event Declared:', declared, 'for eventId:', selectedGroupEventId);
+      setIsCurrentEventDeclared(declared);
+      
+      // Get individual judge lock status
+      const judges = await FirebaseService.getJudges();
+      const groupEventLocks = await FirebaseService.getGroupEventLocks();
+      
+      const event = groupEvents.find(e => String(e.id) === String(selectedGroupEventId) || e.id === eventId);
+      
+      console.log('Debug - Selected Event ID:', selectedGroupEventId);
+      console.log('Debug - Parsed Event ID:', eventId);
+      console.log('Debug - Event:', event);
+      console.log('Debug - All Group Event Locks:', groupEventLocks);
+      console.log('Debug - All Judges:', judges);
+      
+      const lockStatusList = judges.map(judge => {
+        const lock = groupEventLocks.find(
+          l => {
+            console.log(`Checking judge ${judge.username}: lock.groupEventId=${l.groupEventId}, selectedGroupEventId=${selectedGroupEventId}, lock.locked=${l.locked}`);
+            return l.judgeName === judge.username && 
+                   (String(l.groupEventId) === String(selectedGroupEventId) || l.groupEventId === eventId) &&
+                   l.locked;
+          }
+        );
+        console.log(`Judge ${judge.username} lock found:`, lock);
+        return {
+          judgeName: judge.username,
+          isLocked: !!lock
+        };
+      });
+      
+      setJudgeLockStatus(lockStatusList);
+      
+      // Check if event is fully locked
+      let locked = false;
+      if (event && event.scoringType === 'quiz') {
+        locked = groupEventLocks.some(lock => 
+          (String(lock.groupEventId) === String(selectedGroupEventId) || lock.groupEventId === eventId) && 
+          lock.locked
+        );
+      } else {
+        locked = judges.every(judge =>
+          groupEventLocks.some(lock => 
+            lock.judgeName === judge.username && 
+            (String(lock.groupEventId) === String(selectedGroupEventId) || lock.groupEventId === eventId) && 
+            lock.locked
+          )
+        );
+      }
+      
+      console.log('Debug - Is Event Fully Locked:', locked);
+      setIsCurrentEventLocked(locked);
+    };
+
+    checkEventStatus();
+  }, [selectedGroupEventId, groupEvents, groupTeams, declaredResults]);
+
   const handleLogout = () => {
     logout();
-    navigate('/admin/login');
+    startTransition(() => {
+      navigate('/admin/login');
+    });
   };
 
   const handleBackToDashboard = () => {
-    navigate('/admin/dashboard');
+    if (eventId) {
+      navigate(`/admin/event/${eventId}`);
+    } else {
+      navigate('/admin/events');
+    }
   };
 
-  const handleDeclareGroupResult = () => {
+  const handleDeclareGroupResult = async () => {
     if (!selectedGroupEventId) return;
     
-    const result = StorageService.declareGroupResult(parseInt(selectedGroupEventId));
+    const result = await FirebaseService.declareGroupResult(selectedGroupEventId);
     if (result.success) {
-      setDeclaredResults(StorageService.getDeclaredResults());
+      const declaredResults = await FirebaseService.getDeclaredResults();
+      setDeclaredResults(declaredResults);
       alert(result.message);
     } else {
       alert(result.message);
     }
   };
 
-  const handleRevertGroupDeclaration = () => {
+  const handleRevertGroupDeclaration = async () => {
     if (!selectedGroupEventId) return;
     
-    const result = StorageService.revertGroupDeclaration(parseInt(selectedGroupEventId));
+    const result = await FirebaseService.revertGroupDeclaration(selectedGroupEventId);
     if (result.success) {
-      setDeclaredResults(StorageService.getDeclaredResults());
+      const declaredResults = await FirebaseService.getDeclaredResults();
+      setDeclaredResults(declaredResults);
       alert(result.message);
     } else {
       alert(result.message);
     }
-  };
-
-  const isGroupResultDeclared = () => {
-    if (!selectedGroupEventId) return false;
-    return StorageService.isGroupResultDeclared(parseInt(selectedGroupEventId));
   };
 
   const getGroupEventName = (eventId) => {
@@ -73,22 +166,28 @@ const GroupResults = () => {
     return section ? section.name : 'Unknown';
   };
 
-  const isGroupEventFullyLocked = (groupEventId) => {
-    const data = StorageService.getData();
-    const locks = data.groupEventLocks || [];
-    const judges = ['judge1', 'judge2', 'judge3'];
+  const isGroupEventFullyLocked = async (groupEventId) => {
+    const locks = await FirebaseService.getGroupEventLocks();
+    const judges = await FirebaseService.getJudges();
     
     // Find the event to check its type
     const event = groupEvents.find(e => e.id === groupEventId);
     
     // For Group Bible Quiz (scoringType: 'quiz'), only need one judge to lock
     if (event && event.scoringType === 'quiz') {
-      return locks.some(lock => lock.groupEventId === groupEventId && lock.locked);
+      return locks.some(lock => 
+        (String(lock.groupEventId) === String(groupEventId) || lock.groupEventId === groupEventId) && 
+        lock.locked
+      );
     }
     
     // For other events (like Group Song), require all judges to lock
     return judges.every(judge =>
-      locks.some(lock => lock.judgeName === judge && lock.groupEventId === groupEventId && lock.locked)
+      locks.some(lock => 
+        lock.judgeName === judge.username && 
+        (String(lock.groupEventId) === String(groupEventId) || lock.groupEventId === groupEventId) && 
+        lock.locked
+      )
     );
   };
 
@@ -98,15 +197,16 @@ const GroupResults = () => {
     const eventId = parseInt(selectedGroupEventId);
     const event = groupEvents.find(e => e.id === eventId);
     
-    // Check if judges have locked this group event
-    const isLocked = isGroupEventFullyLocked(eventId);
+    // Get all teams for this event (compare as both string and number)
+    const eventTeams = groupTeams.filter(t => 
+      String(t.groupEventId) === String(selectedGroupEventId) || 
+      t.groupEventId === eventId
+    );
     
-    if (!isLocked) {
+    // Check if judges have locked this group event using state
+    if (!isCurrentEventLocked) {
       return null; // Not locked yet
     }
-
-    // Get all teams for this event
-    const eventTeams = groupTeams.filter(t => t.groupEventId === eventId);
 
     // Calculate results
     const results = eventTeams.map(team => {
@@ -164,9 +264,6 @@ const GroupResults = () => {
   };
 
   const results = getResults();
-  const isLocked = selectedGroupEventId 
-    ? isGroupEventFullyLocked(parseInt(selectedGroupEventId))
-    : false;
 
   return (
     <div className="group-results-view">
@@ -177,7 +274,7 @@ const GroupResults = () => {
         </div>
         <div className="header-actions">
           <button onClick={handleBackToDashboard} className="btn btn-secondary">
-            Back to Dashboard
+            {eventId ? '← Back to Event' : '← Back to Events'}
           </button>
           <button onClick={handleLogout} className="btn btn-secondary">
             Logout
@@ -206,26 +303,76 @@ const GroupResults = () => {
           </div>
         </div>
 
-        {selectedGroupEventId && !isLocked && (
+        {/* Step 1: Check if no teams exist */}
+        {selectedGroupEventId && !hasTeams && (
           <div className="warning-message">
-            {(() => {
-              const event = groupEvents.find(e => e.id === parseInt(selectedGroupEventId));
-              if (event && event.scoringType === 'quiz') {
-                return '⚠️ No judge has locked their scores yet. Results will be available once a judge completes scoring.';
-              }
-              return '⚠️ All judges have not locked their scores yet. Results will be available once all judges complete their scoring.';
-            })()}
+            <p>⚠️ No teams found for this group event.</p>
           </div>
         )}
 
-        {results && results.length > 0 && (
+        {/* Step 2: If teams exist, show judge lock status */}
+        {selectedGroupEventId && hasTeams && (
+          <div className="judge-lock-status-section">
+            <h3>Judge Lock Status</h3>
+            {judgeLockStatus.length > 0 ? (
+              <>
+                <div className="judge-locks-grid">
+                  {judgeLockStatus.map((judge, index) => (
+                    <div key={index} className={`judge-lock-item ${judge.isLocked ? 'locked' : 'unlocked'}`}>
+                      <div className="judge-lock-icon">
+                        {judge.isLocked ? '🔒' : '🔓'}
+                      </div>
+                      <div className="judge-lock-info">
+                        <span className="judge-name">{judge.judgeName}</span>
+                        <span className={`lock-status ${judge.isLocked ? 'locked' : 'unlocked'}`}>
+                          {judge.isLocked ? 'Locked' : 'Not Locked'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {isCurrentEventLocked && (
+                  <div className="all-locked-badge">
+                    ✅ {(() => {
+                      const event = groupEvents.find(e => String(e.id) === String(selectedGroupEventId));
+                      return event && event.scoringType === 'quiz' 
+                        ? 'Judge has locked their scores'
+                        : 'All judges have locked their scores';
+                    })()}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="no-data">Loading judge status...</p>
+            )}
+          </div>
+        )}
+
+        {/* Step 3: If not all judges locked, show warning */}
+        {selectedGroupEventId && hasTeams && !isCurrentEventLocked && (
+          <div className="warning-message">
+            <p>
+              {(() => {
+                const event = groupEvents.find(e => String(e.id) === String(selectedGroupEventId));
+                if (event && event.scoringType === 'quiz') {
+                  return '⚠️ Results are not available yet. No judge has locked their scores for this event.';
+                }
+                return '⚠️ Results are not available yet. Not all judges have locked their scores for this event.';
+              })()}
+            </p>
+            <p>Please ensure all judges complete and lock their scoring before viewing results.</p>
+          </div>
+        )}
+
+        {/* Step 4: If all judges locked, show results */}
+        {selectedGroupEventId && hasTeams && isCurrentEventLocked && results && results.length > 0 && (
           <>
             <div className="results-header">
               <h3>Results: {getGroupEventName(parseInt(selectedGroupEventId))}</h3>
               
               {/* Declaration Controls */}
               <div className="declaration-controls">
-                {isGroupResultDeclared() ? (
+                {isCurrentEventDeclared ? (
                   <div className="declaration-status">
                     <span className="status-badge declared">✓ Result Declared</span>
                     <button 

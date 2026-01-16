@@ -9,11 +9,11 @@ const SectionLogin = () => {
   const { loginSection } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
-    const result = loginSection(credentials.username, credentials.password);
+    const result = await loginSection(credentials.username, credentials.password);
 
     if (result.success) {
       navigate('/section/dashboard');

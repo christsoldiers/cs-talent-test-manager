@@ -1,4 +1,3 @@
-import StorageService from './StorageService';
 import FirebaseService from './FirebaseService';
 
 /**
@@ -11,15 +10,17 @@ class DataMigration {
       console.log('Starting data migration from localStorage to Firebase...');
       
       // Get all data from localStorage via StorageService
+      // This migration utility is for one-time use to migrate from localStorage to Firebase
+      // Comment out these calls as StorageService no longer exists
       const mockData = {
-        events: StorageService.getEvents(),
-        groupEvents: StorageService.getGroupEvents(),
-        sections: StorageService.getSections(),
-        participants: StorageService.getParticipants(),
-        groupTeams: StorageService.getGroupTeams(),
+        events: [], // StorageService.getEvents(),
+        groupEvents: [], // StorageService.getGroupEvents(),
+        sections: [], // StorageService.getSections(),
+        participants: [], // StorageService.getParticipants(),
+        groupTeams: [], // StorageService.getGroupTeams(),
         judges: this.getJudgesFromStorage(),
         results: this.getResultsFromStorage(),
-        pointsConfig: StorageService.getPointsConfig()
+        pointsConfig: {} // StorageService.getPointsConfig()
       };
       
       console.log('Mock data retrieved:', {

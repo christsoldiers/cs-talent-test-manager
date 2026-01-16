@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef, startTransition } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import StorageService from '../../services/StorageService';
+import FirebaseService from '../../services/FirebaseService';
 import './PrintableResults.css';
 
 const PrintableResults = () => {
   const [events, setEvents] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [groupEvents, setGroupEvents] = useState([]);
   const [participants, setParticipants] = useState([]);
   const [groupTeams, setGroupTeams] = useState([]);
@@ -19,6 +20,8 @@ const PrintableResults = () => {
   const [groupResults, setGroupResults] = useState({});
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const eventId = location.state?.eventId;
 
   useEffect(() => {
     if (!user || user.role !== 'admin') {
@@ -28,45 +31,56 @@ const PrintableResults = () => {
     }
   }, [user, navigate]);
 
-  const loadData = () => {
-    const data = StorageService.getData();
-    setEvents(StorageService.getEvents());
-    setGroupEvents(data.groupEvents || []);
-    setParticipants(StorageService.getParticipants());
-    setGroupTeams(data.groupTeams || []);
-    setAllScores(StorageService.getScores());
-    setSections(StorageService.getSections());
+  const loadData = async () => {
+    const data = await FirebaseService.getData();
+    const allEvents = await FirebaseService.getEvents();
+    setEvents(allEvents);
+    const allCategories = await FirebaseService.getCategories();
+    const sortedCategories = allCategories.sort((a, b) => (a.order || 0) - (b.order || 0));
+    setCategories(sortedCategories);
+    const allGroupEvents = await FirebaseService.getGroupEvents();
+    setGroupEvents(allGroupEvents);
+    const allParticipants = await FirebaseService.getParticipants();
+    setParticipants(allParticipants);
+    const allGroupTeams = await FirebaseService.getGroupTeams();
+    setGroupTeams(allGroupTeams);
+    const allScores = await FirebaseService.getScores();
+    setAllScores(allScores);
+    const allSections = await FirebaseService.getSections();
+    setSections(allSections);
     setPointsConfig(data.pointsConfig || {
       individual: { first: 5, second: 3, third: 1 },
       group: { first: 10, second: 5, third: 3 }
     });
-    calculateResults();
-    calculateGroupResults(data.groupEvents || [], data.groupTeams || []);
+    await calculateResults(allEvents, allParticipants, allScores, sortedCategories);
+    await calculateGroupResults(allGroupEvents, allGroupTeams);
   };
 
   const handleLogout = () => {
     logout();
-    navigate('/admin/login');
+    startTransition(() => {
+      navigate('/admin/login');
+    });
   };
 
   const handleBackToDashboard = () => {
-    navigate('/admin/dashboard');
+    if (eventId) {
+      navigate(`/admin/event/${eventId}`);
+    } else {
+      navigate('/admin/events');
+    }
   };
 
-  const calculateResults = () => {
-    const eventsList = StorageService.getEvents();
-    const participantsList = StorageService.getParticipants();
-    const scoresList = StorageService.getScores();
-    const categories = ['Junior', 'Senior', 'Super Senior'];
+  const calculateResults = async (eventsList, participantsList, scoresList, categoriesList) => {
     const resultsData = {};
 
-    categories.forEach(category => {
-      resultsData[category] = {};
+    categoriesList.forEach(category => {
+      resultsData[category.name] = {};
       
       eventsList.forEach(event => {
         const categoryParticipants = participantsList.filter(p => {
           const eventIds = p.eventIds || (p.eventId ? [parseInt(p.eventId)] : []);
-          return p.ageCategory === category && eventIds.includes(event.id);
+          return p.ageCategory === category.name && eventIds.includes(event.id);
         });
 
         const participantsWithScores = categoryParticipants.map(participant => {
@@ -91,8 +105,8 @@ const PrintableResults = () => {
         participantsWithScores.sort((a, b) => b.averageScore - a.averageScore);
 
         if (participantsWithScores.length > 0) {
-          if (!resultsData[category][event.id]) {
-            resultsData[category][event.id] = {
+          if (!resultsData[category.name][event.id]) {
+            resultsData[category.name][event.id] = {
               eventName: event.name,
               top3: participantsWithScores.slice(0, 3)
             };
@@ -172,7 +186,7 @@ const PrintableResults = () => {
             🖨️ Print Results
           </button>
           <button onClick={handleBackToDashboard} className="btn btn-secondary">
-            Back to Dashboard
+            {eventId ? '← Back to Event' : '← Back to Events'}
           </button>
           <button onClick={handleLogout} className="btn btn-secondary">
             Logout
@@ -195,13 +209,13 @@ const PrintableResults = () => {
         <div className="results-section">
           <h2 className="section-title">Individual Events Results</h2>
           
-          {['Junior', 'Senior', 'Super Senior'].map(category => (
-            <div key={category} className="category-section">
-              <h3 className="category-title">{category} Category</h3>
+          {categories.map(category => (
+            <div key={category.id} className="category-section">
+              <h3 className="category-title">{category.name} Category ({category.minAge}-{category.maxAge})</h3>
               
-              {results[category] && Object.keys(results[category]).length > 0 ? (
+              {results[category.name] && Object.keys(results[category.name]).length > 0 ? (
                 <div className="events-grid">
-                  {Object.entries(results[category]).map(([eventId, eventData]) => (
+                  {Object.entries(results[category.name]).map(([eventId, eventData]) => (
                     <div key={eventId} className="event-results-card">
                       <h4 className="event-name">{eventData.eventName}</h4>
                       
@@ -211,6 +225,7 @@ const PrintableResults = () => {
                             <th>Pos</th>
                             <th>Chest No</th>
                             <th>Name</th>
+                            <th>Church</th>
                             <th>Section</th>
                             <th>Score</th>
                             <th>Points</th>
@@ -226,6 +241,7 @@ const PrintableResults = () => {
                               </td>
                               <td><strong>{participant.chestNumber}</strong></td>
                               <td>{participant.name}</td>
+                              <td>{participant.churchName || 'N/A'}</td>
                               <td>{participant.section}</td>
                               <td>{participant.averageScore.toFixed(2)}</td>
                               <td><span className="points-badge">{getPoints(index, false)}</span></td>
@@ -259,6 +275,7 @@ const PrintableResults = () => {
                         <th>Pos</th>
                         <th>Chest No</th>
                         <th>Team Name</th>
+                        <th>Church</th>
                         <th>Section</th>
                         <th>Score</th>
                         <th>Points</th>
@@ -274,6 +291,7 @@ const PrintableResults = () => {
                           </td>
                           <td><strong>{team.chestNumber}</strong></td>
                           <td>{team.teamName}</td>
+                          <td>{team.churchName || 'N/A'}</td>
                           <td>{getSectionName(team.sectionId)}</td>
                           <td>{team.finalScore.toFixed(2)}</td>
                           <td><span className="points-badge">{getPoints(index, true)}</span></td>

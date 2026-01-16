@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import StorageService from '../services/StorageService';
+import { FirebaseServiceWithoutLoading as FirebaseService } from '../services/FirebaseService';
 import './Home.css';
 
 const Home = () => {
@@ -9,28 +9,19 @@ const Home = () => {
     individualChampions: []
   });
   const [showMarquee, setShowMarquee] = useState(false);
-  const [finalChampions, setFinalChampions] = useState(null);
-  const [championsDeclared, setChampionsDeclared] = useState(false);
 
   useEffect(() => {
     calculateResults();
-    loadChampions();
   }, []);
 
-  const loadChampions = () => {
-    const data = StorageService.getData();
-    if (data.championsDeclared && data.finalChampions) {
-      setChampionsDeclared(true);
-      setFinalChampions(data.finalChampions);
-    }
-  };
-
-  const calculateResults = () => {
-    const participants = StorageService.getParticipants();
-    const allScores = StorageService.getScores();
-    const sections = StorageService.getSections();
-    const declaredResults = StorageService.getDeclaredResults();
-    const data = StorageService.getData();
+  const calculateResults = async () => {
+    const participants = await FirebaseService.getParticipants();
+    const allScores = await FirebaseService.getScores();
+    const sections = await FirebaseService.getSections();
+    const declaredResults = await FirebaseService.getDeclaredResults();
+    const groupTeams = await FirebaseService.getGroupTeams();
+    const groupEvents = await FirebaseService.getGroupEvents();
+    const data = await FirebaseService.getData();
     const pointsConfig = data.pointsConfig || {
       individual: { first: 5, second: 3, third: 1 },
       group: { first: 10, second: 5, third: 3 }
@@ -39,10 +30,10 @@ const Home = () => {
     // Calculate points for each participant
     const participantPoints = {};
     
-    participants.forEach(participant => {
+    for (const participant of participants) {
       const eventIds = participant.eventIds || (participant.eventId ? [parseInt(participant.eventId)] : []);
       
-      eventIds.forEach(eventId => {
+      for (const eventId of eventIds) {
         const category = participant.ageCategory;
         
         // Check if this result is declared
@@ -50,11 +41,11 @@ const Home = () => {
           r => r.eventId === eventId && r.category === category
         );
         
-        if (!isDeclared) return; // Skip if not declared
+        if (!isDeclared) continue; // Skip if not declared
         
-        const isLocked = StorageService.areAllJudgesLocked(eventId, category);
+        const isLocked = await FirebaseService.areAllJudgesLocked(eventId, category);
         
-        if (!isLocked) return;
+        if (!isLocked) continue;
         
         const eventParticipants = participants.filter(p => {
           const pEventIds = p.eventIds || (p.eventId ? [parseInt(p.eventId)] : []);
@@ -97,8 +88,8 @@ const Home = () => {
             participantPoints[participant.id].totalPoints += points;
           }
         });
-      });
-    });
+      }
+    }
 
     // Calculate section champions
     const sectionScores = {};
@@ -117,30 +108,47 @@ const Home = () => {
     });
     
     // Add group event points
-    const groupTeams = data.groupTeams || [];
-    const groupEvents = data.groupEvents || [];
     const groupLocks = data.groupEventLocks || [];
+    const judges = await FirebaseService.getJudges();
+    
+    console.log('Home - Group Events:', groupEvents.length);
+    console.log('Home - Group Teams:', groupTeams.length);
+    console.log('Home - Group Locks:', groupLocks);
+    console.log('Home - Judges:', judges);
+    console.log('Home - Declared Results:', declaredResults);
     
     groupEvents.forEach(groupEvent => {
       // Check if this group event is declared
-      const isDeclared = declaredResults.some(r => r.groupEventId === groupEvent.id);
+      const isDeclared = declaredResults.some(r => String(r.groupEventId) === String(groupEvent.id));
+      
+      console.log(`Home - Group Event ${groupEvent.name} (ID: ${groupEvent.id}): isDeclared=${isDeclared}`);
       
       if (!isDeclared) return;
       
       // Check if all judges have locked this group event
-      const judgeCredentials = data.judgeCredentials || [];
-      const isLocked = judgeCredentials.every(judge =>
-        groupLocks.some(lock => 
-          lock.judgeName === judge.username && 
-          lock.groupEventId === groupEvent.id && 
-          lock.locked
-        )
-      );
+      let isLocked = false;
+      if (groupEvent.scoringType === 'quiz') {
+        isLocked = groupLocks.some(lock => 
+          String(lock.groupEventId) === String(groupEvent.id) && lock.locked
+        );
+      } else {
+        isLocked = judges.length > 0 && judges.every(judge =>
+          groupLocks.some(lock => 
+            lock.judgeName === judge.username && 
+            String(lock.groupEventId) === String(groupEvent.id) && 
+            lock.locked
+          )
+        );
+      }
+      
+      console.log(`Home - Group Event ${groupEvent.name}: isLocked=${isLocked}, scoringType=${groupEvent.scoringType}`);
       
       if (!isLocked) return;
       
       // Get all teams for this event
-      const eventTeams = groupTeams.filter(t => t.groupEventId === groupEvent.id);
+      const eventTeams = groupTeams.filter(t => String(t.groupEventId) === String(groupEvent.id));
+      
+      console.log(`Home - Teams for ${groupEvent.name}:`, eventTeams.length, eventTeams);
       
       // Calculate results
       const results = eventTeams.map(team => {
@@ -149,28 +157,35 @@ const Home = () => {
         let judgeCount = 0;
         
         if (groupEvent.scoringType === 'quiz') {
-          const quizScore = teamScores.find(s => s.score !== undefined);
+          const quizScore = teamScores.find(s => s.score !== undefined && s.score !== null);
           totalScore = quizScore ? parseFloat(quizScore.score) : 0;
           judgeCount = quizScore ? 1 : 0;
         } else {
           teamScores.forEach(score => {
-            totalScore += parseFloat(score.score);
-            judgeCount++;
+            if (score.score !== undefined && score.score !== null) {
+              totalScore += parseFloat(score.score);
+              judgeCount++;
+            }
           });
         }
         
         const averageScore = judgeCount > 0 ? 
           (groupEvent.scoringType === 'quiz' ? totalScore : totalScore / judgeCount) : 0;
         
+        console.log(`Home - Team ${team.teamName} (Section: ${team.sectionId}): scores=${JSON.stringify(teamScores)}, total=${totalScore}, judges=${judgeCount}, avg=${averageScore}`);
+        
         return {
           teamId: team.id,
           sectionId: team.sectionId,
+          teamName: team.teamName,
           averageScore
         };
       });
       
       // Sort by average score
       results.sort((a, b) => b.averageScore - a.averageScore);
+      
+      console.log(`Home - Sorted results for ${groupEvent.name}:`, results);
       
       // Assign points based on rank
       results.forEach((result, index) => {
@@ -181,13 +196,20 @@ const Home = () => {
         else if (rank === 2) points = pointsConfig.group.second;
         else if (rank === 3) points = pointsConfig.group.third;
         
+        console.log(`Home - Rank ${rank} - Team ${result.teamName}: ${points} points`);
+        
         // Find section name for this team
         const section = sections.find(s => s.id === result.sectionId);
         if (section && sectionScores[section.name]) {
+          console.log(`Home - Adding ${points} points to section ${section.name}`);
           sectionScores[section.name].totalPoints += points;
+        } else {
+          console.log(`Home - Section not found for sectionId: ${result.sectionId}, available sections:`, sections);
         }
       });
     });
+    
+    console.log('Home - Final Section Scores:', sectionScores);
     
     const sectionChampions = Object.values(sectionScores)
       .filter(s => s.totalPoints > 0)
@@ -226,11 +248,13 @@ const Home = () => {
       individualChampions
     });
 
-    setShowMarquee(
-      sectionChampions.length > 0 || 
-      churchChampions.length > 0 || 
-      individualChampions.length > 0
-    );
+    // Show marquee only if there are declared results
+    const hasData = sectionChampions.length > 0 || 
+                    churchChampions.length > 0 || 
+                    individualChampions.length > 0;
+    const hasDeclarations = declaredResults.length > 0;
+    
+    setShowMarquee(hasData && hasDeclarations);
   };
 
   const getMedalEmoji = (index) => {
@@ -242,39 +266,6 @@ const Home = () => {
 
   return (
     <div className="home-page">
-      {championsDeclared && finalChampions && (
-        <div className="championship-banner">
-          <div className="championship-card">
-            <div className="trophy-animation">🏆</div>
-            <h2 className="championship-title">Christ Soldiers Talent Test 2026</h2>
-            <h3 className="championship-subtitle">Official Champions</h3>
-            <div className="champions-podium">
-              <div className="podium-item second-place">
-                <div className="medal-icon">🥈</div>
-                <div className="podium-rank">Runner-up</div>
-                <div className="podium-section">{finalChampions.runnerUp.section}</div>
-                <div className="podium-points">{finalChampions.runnerUp.totalPoints} pts</div>
-              </div>
-              <div className="podium-item first-place">
-                <div className="medal-icon">🥇</div>
-                <div className="podium-rank">Champion</div>
-                <div className="podium-section">{finalChampions.champion.section}</div>
-                <div className="podium-points">{finalChampions.champion.totalPoints} pts</div>
-              </div>
-              <div className="podium-item third-place">
-                <div className="medal-icon">🥉</div>
-                <div className="podium-rank">2nd Runner-up</div>
-                <div className="podium-section">{finalChampions.secondRunnerUp.section}</div>
-                <div className="podium-points">{finalChampions.secondRunnerUp.totalPoints} pts</div>
-              </div>
-            </div>
-            <div className="championship-footer">
-              <p>🎉 Congratulations to all participants! 🎉</p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showMarquee && (
         <div className="results-marquee-container">
           <div className="results-marquee">

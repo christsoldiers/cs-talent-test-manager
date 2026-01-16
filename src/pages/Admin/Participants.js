@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, startTransition } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import StorageService from '../../services/StorageService';
+import FirebaseService from '../../services/FirebaseService';
 import './Participants.css';
 
 const Participants = () => {
@@ -9,12 +9,16 @@ const Participants = () => {
   const [filteredParticipants, setFilteredParticipants] = useState([]);
   const [selectedSection, setSelectedSection] = useState('');
   const [selectedChurch, setSelectedChurch] = useState('');
-  const [sections] = useState(StorageService.getSections());
-  const [events] = useState(StorageService.getEvents());
+  const [searchName, setSearchName] = useState('');
+  const [sections, setSections] = useState([]);
+  const [events, setEvents] = useState([]);
   const [filterChurches, setFilterChurches] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingParticipant, setEditingParticipant] = useState(null);
   const [availableChurches, setAvailableChurches] = useState([]);
+  const [currentEvent, setCurrentEvent] = useState(null);
+  const [talentTestEvents, setTalentTestEvents] = useState([]);
+  const [ageLimits, setAgeLimits] = useState({ minAge: 6, maxAge: 25 });
   const [formData, setFormData] = useState({
     name: '',
     age: '',
@@ -23,23 +27,65 @@ const Participants = () => {
     phone: '',
     eventIds: [],
     churchName: '',
-    section: ''
+    section: '',
+    talentTestEventId: ''
   });
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const eventId = location.state?.eventId;
 
   useEffect(() => {
-    if (!user || user.role !== 'admin') {
-      navigate('/admin/login');
+    if (!user || (user.role !== 'admin' && user.role !== 'section')) {
+      const loginPath = user?.role === 'section' ? '/section/login' : '/admin/login';
+      navigate(loginPath);
     } else {
       loadParticipants();
     }
   }, [user, navigate]);
 
-  const loadParticipants = () => {
-    const allParticipants = StorageService.getParticipants();
-    setParticipants(allParticipants);
-    setFilteredParticipants(allParticipants);
+  const loadParticipants = async () => {
+    const allSections = await FirebaseService.getSections();
+    setSections(allSections);
+    const allEvents = await FirebaseService.getEvents();
+    setEvents(allEvents);
+    
+    // Load age limits from categories
+    const limits = await FirebaseService.getMinMaxAge();
+    setAgeLimits(limits);
+    
+    const ttEvents = await FirebaseService.getTalentTestEvents();
+    setTalentTestEvents(ttEvents);
+    
+    if (eventId) {
+      const event = await FirebaseService.getTalentTestEventById(eventId);
+      setCurrentEvent(event);
+      setFormData(prev => ({ ...prev, talentTestEventId: eventId }));
+    }
+    
+    // Load participants based on user role
+    let allParticipants;
+    if (user.role === 'section') {
+      allParticipants = await FirebaseService.getParticipantsBySection(user.section);
+      // Pre-select the section filter for section users
+      setSelectedSection(user.section);
+      // Set section in form data
+      setFormData(prev => ({ ...prev, section: user.section }));
+      // Load churches for section user
+      const churches = await FirebaseService.getChurchesBySection(user.section);
+      const churchNames = churches.map(c => typeof c === 'string' ? c : c.name);
+      setAvailableChurches(churchNames);
+    } else {
+      allParticipants = await FirebaseService.getParticipants();
+    }
+    
+    // Filter by event if eventId is provided
+    const filtered = eventId 
+      ? allParticipants.filter(p => p.talentTestEventId === eventId)
+      : allParticipants;
+    
+    setParticipants(filtered);
+    setFilteredParticipants(filtered);
   };
 
   const applyFilters = () => {
@@ -53,42 +99,53 @@ const Participants = () => {
       filtered = filtered.filter(p => p.churchName === selectedChurch);
     }
     
+    if (searchName) {
+      filtered = filtered.filter(p => 
+        p.name.toLowerCase().includes(searchName.toLowerCase())
+      );
+    }
+    
     setFilteredParticipants(filtered);
   };
 
   useEffect(() => {
     applyFilters();
-  }, [selectedSection, selectedChurch, participants]);
+  }, [selectedSection, selectedChurch, searchName, participants]);
 
   useEffect(() => {
     // Update available churches when section changes
     if (selectedSection) {
       const section = sections.find(s => s.name === selectedSection);
-      setFilterChurches(section ? section.churches : []);
+      const churches = section ? section.churches : [];
+      // Extract church names if churches are objects
+      const churchNames = churches.map(c => typeof c === 'string' ? c : c.name);
+      setFilterChurches(churchNames);
       // Clear church filter if it's not in the new section
-      if (selectedChurch && section && !section.churches.includes(selectedChurch)) {
+      if (selectedChurch && section && !churchNames.includes(selectedChurch)) {
         setSelectedChurch('');
       }
     } else {
-      // Show all churches from all sections
+      // Show all churches from all sections (ensure unique values)
       const allChurches = sections.reduce((acc, section) => {
-        return [...acc, ...section.churches];
+        const churches = section.churches.map(c => typeof c === 'string' ? c : c.name);
+        return [...acc, ...churches];
       }, []);
-      setFilterChurches(allChurches);
+      setFilterChurches([...new Set(allChurches)]);
     }
   }, [selectedSection, sections, selectedChurch]);
 
   const clearFilters = () => {
     setSelectedSection('');
     setSelectedChurch('');
+    setSearchName('');
   };
 
-  const handleChange = (e) => {
+  const handleChange = async (e) => {
     const { name, value, type, checked } = e.target;
     
     // Handle checkbox for events
     if (type === 'checkbox' && name === 'eventIds') {
-      const eventId = parseInt(value);
+      const eventId = value; // Keep as string (Firebase document ID)
       const updatedEventIds = checked
         ? [...formData.eventIds, eventId]
         : formData.eventIds.filter(id => id !== eventId);
@@ -122,8 +179,9 @@ const Participants = () => {
 
     // Update available churches when section changes
     if (name === 'section') {
-      const churches = StorageService.getChurchesBySection(value);
-      setAvailableChurches(churches);
+      const churches = await FirebaseService.getChurchesBySection(value);
+      const churchNames = churches.map(c => typeof c === 'string' ? c : c.name);
+      setAvailableChurches(churchNames);
       setFormData(prev => ({
         ...prev,
         section: value,
@@ -132,13 +190,14 @@ const Participants = () => {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const age = parseInt(formData.age);
-    const ageCategory = StorageService.getAgeCategory(age);
+    const ageCategory = await FirebaseService.getAgeCategory(age);
 
     if (!ageCategory) {
-      alert('Age must be between 6 and 25 years');
+      const { minAge, maxAge } = await FirebaseService.getMinMaxAge();
+      alert(`Age must be between ${minAge} and ${maxAge} years`);
       return;
     }
 
@@ -154,10 +213,10 @@ const Participants = () => {
     };
 
     if (editingParticipant) {
-      StorageService.updateParticipant(editingParticipant.id, participantData);
+      await FirebaseService.updateParticipant(editingParticipant.id, participantData);
       setEditingParticipant(null);
     } else {
-      StorageService.addParticipant(participantData);
+      await FirebaseService.addParticipant(participantData);
     }
 
     resetForm();
@@ -180,11 +239,12 @@ const Participants = () => {
     setEditingParticipant(null);
   };
 
-  const handleEdit = (participant) => {
+  const handleEdit = async (participant) => {
     setEditingParticipant(participant);
     const participantSection = participant.section || '';
-    const churches = StorageService.getChurchesBySection(participantSection);
-    setAvailableChurches(churches);
+    const churches = await FirebaseService.getChurchesBySection(participantSection);
+    const churchNames = churches.map(c => typeof c === 'string' ? c : c.name);
+    setAvailableChurches(churchNames);
     
     // Handle both old single eventId and new eventIds array
     const eventIds = participant.eventIds 
@@ -206,29 +266,29 @@ const Participants = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this participant?')) {
-      StorageService.deleteParticipant(id);
+      await FirebaseService.deleteParticipant(id);
       loadParticipants();
     }
   };
 
-  const handleAssignChestNumber = (participantId) => {
-    const chestNumber = StorageService.assignChestNumber(participantId);
+  const handleAssignChestNumber = async (participantId) => {
+    const chestNumber = await FirebaseService.assignChestNumber(participantId);
     if (chestNumber) {
       alert(`Chest number ${chestNumber} assigned successfully!`);
       loadParticipants();
     }
   };
 
-  const handleRemoveChestNumber = (participantId) => {
+  const handleRemoveChestNumber = async (participantId) => {
     if (window.confirm('Are you sure you want to remove the chest number?')) {
-      StorageService.removeChestNumber(participantId);
+      await FirebaseService.removeChestNumber(participantId);
       loadParticipants();
     }
   };
 
-  const handleGenerateAllChestNumbers = () => {
+  const handleGenerateAllChestNumbers = async () => {
     const unassignedCount = participants.filter(p => !p.chestNumber).length;
     
     if (unassignedCount === 0) {
@@ -237,14 +297,13 @@ const Participants = () => {
     }
     
     if (window.confirm(`Generate chest numbers for ${unassignedCount} participant(s)?\n\nChest numbers will be assigned by category:\n- Junior: J-001, J-002...\n- Intermediate: I-001, I-002...\n- Senior: S-001, S-002...\n- Super Senior: SS-001, SS-002...`)) {
-      const assignedCount = StorageService.assignAllChestNumbers();
+      const assignedCount = await FirebaseService.assignAllChestNumbers();
       alert(`Successfully assigned ${assignedCount} chest numbers!`);
       loadParticipants();
     }
   };
 
   const getEventNames = (participant) => {
-    const events = StorageService.getEvents();
     const eventIds = participant.eventIds || (participant.eventId ? [parseInt(participant.eventId)] : []);
     return eventIds
       .map(id => {
@@ -257,7 +316,24 @@ const Participants = () => {
 
   const handleLogout = () => {
     logout();
-    navigate('/admin/login');
+    const loginPath = user?.role === 'section' ? '/section/login' : '/admin/login';
+    startTransition(() => {
+      navigate(loginPath);
+    });
+  };
+
+  const handleBackToDashboard = () => {
+    if (eventId) {
+      const eventPath = user?.role === 'section' 
+        ? `/section/event/${eventId}` 
+        : `/admin/event/${eventId}`;
+      navigate(eventPath);
+    } else {
+      const dashboardPath = user?.role === 'section' 
+        ? '/section/events' 
+        : '/admin/events';
+      navigate(dashboardPath);
+    }
   };
 
   const handlePrintList = () => {
@@ -352,10 +428,22 @@ const Participants = () => {
   return (
     <div className="participants-container">
       <div className="participants-header">
-        <h1>Participants by Location</h1>
+        <div>
+          {currentEvent && (
+            <div className="breadcrumb">
+              <button onClick={handleBackToDashboard} className="btn-link">
+                ← {currentEvent.name}
+              </button>
+            </div>
+          )}
+          <h1>Participants by Location</h1>
+          {currentEvent && (
+            <p className="subtitle">Viewing participants for: {currentEvent.name}</p>
+          )}
+        </div>
         <div className="header-actions">
-          <button onClick={() => navigate('/admin/dashboard')} className="btn-secondary">
-            Back to Dashboard
+          <button onClick={handleBackToDashboard} className="btn-secondary">
+            {eventId ? '← Back to Event' : '← Back to Events'}
           </button>
           <button onClick={handleLogout} className="btn-logout">
             Logout
@@ -365,11 +453,23 @@ const Participants = () => {
 
       <div className="filters-section">
         <div className="filter-group">
+          <label>Search Name:</label>
+          <input
+            type="text"
+            value={searchName}
+            onChange={(e) => setSearchName(e.target.value)}
+            placeholder="Search by participant name..."
+            className="filter-input"
+          />
+        </div>
+
+        <div className="filter-group">
           <label>Section:</label>
           <select 
             value={selectedSection}
             onChange={(e) => setSelectedSection(e.target.value)}
             className="filter-select"
+            disabled={user?.role === 'section'}
           >
             <option value="">All Sections</option>
             {sections.map(section => (
@@ -388,16 +488,19 @@ const Participants = () => {
             className="filter-select"
           >
             <option value="">All Churches</option>
-            {filterChurches.map(church => (
-              <option key={church} value={church}>
-                {church}
-              </option>
-            ))}
+            {filterChurches.map((church, index) => {
+              const churchName = typeof church === 'string' ? church : church.name;
+              return (
+                <option key={index} value={churchName}>
+                  {churchName}
+                </option>
+              );
+            })}
           </select>
         </div>
 
         <div className="filter-actions">
-          {(selectedSection || selectedChurch) && (
+          {(selectedSection || selectedChurch || searchName) && (
             <button onClick={clearFilters} className="btn-clear">
               Clear Filters
             </button>
@@ -432,13 +535,22 @@ const Participants = () => {
             setShowAddForm(!showAddForm);
             if (!showAddForm) setEditingParticipant(null);
           }} 
-          className="btn-primary"
+          className="btn btn-primary"
+          disabled={currentEvent && !currentEvent.registrationOpen}
+          title={currentEvent && !currentEvent.registrationOpen ? 'Registration is closed for this event' : ''}
         >
           {showAddForm ? 'Cancel' : '+ Add New Participant'}
         </button>
-        <button onClick={handleGenerateAllChestNumbers} className="btn-secondary">
-          Generate All Chest Numbers
-        </button>
+        {currentEvent && !currentEvent.registrationOpen && (
+          <span className="registration-closed-notice">
+            ⚠️ Registration is closed
+          </span>
+        )}
+        {user.role === 'admin' && (
+          <button onClick={handleGenerateAllChestNumbers} className="btn btn-secondary">
+            Generate All Chest Numbers
+          </button>
+        )}
       </div>
 
       {showAddForm && (
@@ -465,8 +577,8 @@ const Participants = () => {
                   name="age"
                   value={formData.age}
                   onChange={handleChange}
-                  min="6"
-                  max="25"
+                  min={ageLimits.minAge}
+                  max={ageLimits.maxAge}
                   required
                 />
               </div>
@@ -551,6 +663,7 @@ const Participants = () => {
                   value={formData.section}
                   onChange={handleChange}
                   required
+                  disabled={user?.role === 'section'}
                 >
                   <option value="">Select Section</option>
                   {sections.map(section => (
@@ -573,11 +686,14 @@ const Participants = () => {
                   <option value="">
                     {formData.section ? 'Select Church' : 'Select Section First'}
                   </option>
-                  {availableChurches.map((church, index) => (
-                    <option key={index} value={church}>
-                      {church}
-                    </option>
-                  ))}
+                  {availableChurches.map((church, index) => {
+                    const churchName = typeof church === 'string' ? church : church.name;
+                    return (
+                      <option key={index} value={churchName}>
+                        {churchName}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             </div>
@@ -675,22 +791,24 @@ const Participants = () => {
                   >
                     Delete
                   </button>
-                  {!participant.chestNumber ? (
-                    <button
-                      onClick={() => handleAssignChestNumber(participant.id)}
-                      className="btn-assign"
-                      title="Assign chest number"
-                    >
-                      Assign #
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleRemoveChestNumber(participant.id)}
-                      className="btn-remove"
-                      title="Remove chest number"
-                    >
-                      Remove #
-                    </button>
+                  {user.role === 'admin' && (
+                    !participant.chestNumber ? (
+                      <button
+                        onClick={() => handleAssignChestNumber(participant.id)}
+                        className="btn-assign"
+                        title="Assign chest number"
+                      >
+                        Assign #
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleRemoveChestNumber(participant.id)}
+                        className="btn-remove"
+                        title="Remove chest number"
+                      >
+                        Remove #
+                      </button>
+                    )
                   )}
                 </td>
               </tr>

@@ -1,6 +1,6 @@
 .results-view {
-  padding: 30px;
-  max-width: 1400px;
+  padding: 20px;
+  max-width: 1600px;
   margin: 0 auto;
 }
 
@@ -450,7 +450,94 @@
   box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
 }
 
+.judge-lock-status-section {
+  margin: 25px 0;
+  padding: 20px;
+  background: #f9fafb;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+}
+
+.judge-lock-status-section h3 {
+  margin: 0 0 15px 0;
+  color: #1f2937;
+  font-size: 1.1rem;
+}
+
+.judge-locks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.judge-lock-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 2px solid;
+  transition: all 0.3s ease;
+}
+
+.judge-lock-item.locked {
+  background: #d1fae5;
+  border-color: #10b981;
+}
+
+.judge-lock-item.unlocked {
+  background: #fee2e2;
+  border-color: #ef4444;
+}
+
+.judge-lock-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.judge-lock-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.judge-name {
+  font-weight: 600;
+  color: #1f2937;
+  font-size: 14px;
+}
+
+.lock-status {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.lock-status.locked {
+  color: #065f46;
+}
+
+.lock-status.unlocked {
+  color: #991b1b;
+}
+
+.all-locked-badge {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  padding: 12px 20px;
+  border-radius: 8px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 15px;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
 @media (max-width: 768px) {
+  .judge-locks-grid {
+    grid-template-columns: 1fr;
+  }
+
   .results-header {
     flex-direction: column;
     align-items: flex-start;

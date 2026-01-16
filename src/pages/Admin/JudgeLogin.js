@@ -9,11 +9,11 @@ const JudgeLogin = () => {
   const { loginJudge } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
-    const result = loginJudge(credentials.username, credentials.password);
+    const result = await loginJudge(credentials.username, credentials.password);
 
     if (result.success) {
       navigate('/judge/dashboard');

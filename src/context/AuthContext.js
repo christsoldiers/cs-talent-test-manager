@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext } from 'react';
-import StorageService from '../services/StorageService';
+import FirebaseService from '../services/FirebaseService';
 
 const AuthContext = createContext();
 
@@ -14,8 +14,8 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
 
-  const loginAdmin = (username, password) => {
-    if (StorageService.validateAdmin(username, password)) {
+  const loginAdmin = async (username, password) => {
+    if (await FirebaseService.validateAdmin(username, password)) {
       const adminUser = { username, role: 'admin' };
       setUser(adminUser);
       localStorage.setItem('currentUser', JSON.stringify(adminUser));
@@ -24,18 +24,24 @@ export const AuthProvider = ({ children }) => {
     return { success: false, error: 'Invalid credentials' };
   };
 
-  const loginJudge = (username, password) => {
-    if (StorageService.validateJudge(username, password)) {
-      const judgeUser = { username, role: 'judge' };
+  const loginJudge = async (username, password) => {
+    const result = await FirebaseService.validateJudge(username, password);
+    if (result.valid) {
+      const judgeUser = { 
+        username, 
+        role: 'judge',
+        talentTestEventId: result.talentTestEventId,
+        talentTestEventName: result.talentTestEventName
+      };
       setUser(judgeUser);
       localStorage.setItem('currentUser', JSON.stringify(judgeUser));
       return { success: true };
     }
-    return { success: false, error: 'Invalid credentials' };
+    return { success: false, error: result.error || 'Invalid credentials or not assigned to any event' };
   };
 
-  const loginSection = (username, password) => {
-    const result = StorageService.validateSection(username, password);
+  const loginSection = async (username, password) => {
+    const result = await FirebaseService.validateSection(username, password);
     if (result.valid) {
       const sectionUser = { username, role: 'section', section: result.section };
       setUser(sectionUser);

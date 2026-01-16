@@ -9,11 +9,11 @@ const AdminLogin = () => {
   const { loginAdmin } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
-    const result = loginAdmin(credentials.username, credentials.password);
+    const result = await loginAdmin(credentials.username, credentials.password);
 
     if (result.success) {
       navigate('/admin/dashboard');

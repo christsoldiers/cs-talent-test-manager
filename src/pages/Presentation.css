@@ -1,0 +1,549 @@
+.presentation-view {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 20px;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Override main-content styling for presentation page */
+.presentation-view ~ .main-content,
+body:has(.presentation-view) .main-content {
+  max-width: none;
+  padding: 0;
+}
+
+/* Alternative: Direct override when presentation is rendered */
+.App:has(.presentation-view) .main-content {
+  max-width: none;
+  padding: 0;
+}
+
+/* Menu Toggle Button */
+.menu-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  font-size: 24px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.menu-toggle:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+}
+
+/* Control Menu */
+.control-menu {
+  position: fixed;
+  top: 100px;
+  right: 20px;
+  z-index: 999;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: 20px;
+  min-width: 300px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  color: #333;
+  animation: slideInRight 0.3s ease;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.menu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid rgba(102, 126, 234, 0.3);
+}
+
+.menu-header h3 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #667eea;
+}
+
+.close-menu {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  cursor: pointer;
+  color: #666;
+  transition: color 0.3s ease;
+}
+
+.close-menu:hover {
+  color: #333;
+}
+
+.menu-section {
+  margin-bottom: 20px;
+}
+
+.menu-section h4 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.menu-btn {
+  width: 100%;
+  padding: 12px 20px;
+  margin-bottom: 10px;
+  background: rgba(102, 126, 234, 0.1);
+  border: 2px solid rgba(102, 126, 234, 0.3);
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #667eea;
+  transition: all 0.3s ease;
+  text-align: left;
+}
+
+.menu-btn:hover {
+  background: rgba(102, 126, 234, 0.2);
+  transform: translateX(5px);
+}
+
+.menu-btn.active {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+.refresh-btn {
+  background: rgba(76, 175, 80, 0.1);
+  border-color: rgba(76, 175, 80, 0.3);
+  color: #4caf50;
+  text-align: center;
+}
+
+.refresh-btn:hover {
+  background: rgba(76, 175, 80, 0.2);
+  transform: translateX(0) scale(1.05);
+}
+
+/* Toggle Switch */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 60px;
+  height: 34px;
+  margin-right: 10px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: 0.4s;
+  border-radius: 34px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 26px;
+  width: 26px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: 0.4s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: #667eea;
+}
+
+input:checked + .slider:before {
+  transform: translateX(26px);
+}
+
+.switch-label {
+  display: inline-block;
+  vertical-align: middle;
+  font-weight: 600;
+  color: #666;
+}
+
+.menu-info {
+  padding-top: 15px;
+  border-top: 2px solid rgba(102, 126, 234, 0.3);
+  text-align: center;
+}
+
+.menu-info small {
+  color: #999;
+  font-size: 0.85rem;
+}
+
+
+.presentation-view::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
+              radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
+  animation: pulse 8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.presentation-header {
+  text-align: center;
+  margin-bottom: 30px;
+  position: relative;
+  z-index: 1;
+}
+
+.presentation-title {
+  font-size: 2.5rem;
+  font-weight: 900;
+  margin: 0;
+  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  animation: glow 2s ease-in-out infinite alternate;
+  letter-spacing: 2px;
+}
+
+@keyframes glow {
+  from {
+    text-shadow: 0 0 20px rgba(255, 255, 255, 0.5),
+                 0 0 30px rgba(255, 255, 255, 0.3);
+  }
+  to {
+    text-shadow: 0 0 30px rgba(255, 255, 255, 0.8),
+                 0 0 40px rgba(255, 255, 255, 0.5);
+  }
+}
+
+.presentation-subtitle {
+  font-size: 1.6rem;
+  font-weight: 600;
+  margin: 15px 0 0;
+  opacity: 0.95;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.presentation-content {
+  position: relative;
+  z-index: 1;
+  transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out;
+}
+
+.presentation-content.fade-in {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.presentation-content.fade-out {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+.section-title {
+  font-size: 2rem;
+  text-align: center;
+  margin-bottom: 25px;
+  font-weight: 700;
+  text-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
+}
+
+.leaderboard-grid {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.leaderboard-item {
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  border-radius: 15px;
+  padding: 18px 25px;
+  margin: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 25px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s ease;
+  opacity: 0;
+  animation: slideIn 0.6s ease forwards;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.leaderboard-item:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.leaderboard-item.rank-1 {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.3) 0%, rgba(255, 215, 0, 0.1) 100%);
+  border-color: rgba(255, 215, 0, 0.5);
+  transform: scale(1.05);
+}
+
+.leaderboard-item.rank-2 {
+  background: linear-gradient(135deg, rgba(192, 192, 192, 0.3) 0%, rgba(192, 192, 192, 0.1) 100%);
+  border-color: rgba(192, 192, 192, 0.5);
+}
+
+.leaderboard-item.rank-3 {
+  background: linear-gradient(135deg, rgba(205, 127, 50, 0.3) 0%, rgba(205, 127, 50, 0.1) 100%);
+  border-color: rgba(205, 127, 50, 0.5);
+}
+
+.presentation-view .rank-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 80px;
+}
+
+.presentation-view .rank-number {
+  font-size: 2rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.presentation-view .medal {
+  font-size: 2.2rem;
+  animation: bounce 2s ease-in-out infinite;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.presentation-view .item-content {
+  flex: 1;
+}
+
+.presentation-view .item-name {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 0 0 6px;
+  line-height: 1.2;
+}
+
+.presentation-view .item-section {
+  font-size: 1.1rem;
+  margin: 0;
+  opacity: 0.9;
+  font-weight: 500;
+}
+
+.presentation-view .points-breakdown {
+  display: flex;
+  gap: 15px;
+  font-size: 0.95rem;
+  margin-top: 6px;
+}
+
+.presentation-view .individual-points,
+.presentation-view .group-points {
+  padding: 5px 12px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.presentation-view .total-points {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 20px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 12px;
+  min-width: 120px;
+}
+
+.presentation-view .points-value {
+  font-size: 2.2rem;
+  font-weight: 900;
+  line-height: 1;
+  background: linear-gradient(135deg, #fff 0%, #f0f0f0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.presentation-view .points-label {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-top: 4px;
+  opacity: 0.9;
+}
+
+.presentation-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 30px;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+  text-align: center;
+  z-index: 2;
+}
+
+.footer-animation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+
+.footer-text {
+  font-size: 1.3rem;
+  font-weight: 600;
+  animation: fadeInOut 3s ease-in-out infinite;
+}
+
+@keyframes fadeInOut {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+.sparkle {
+  font-size: 2.5rem;
+  animation: sparkle 1.5s ease-in-out infinite;
+}
+
+@keyframes sparkle {
+  0%, 100% { 
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  50% { 
+    transform: scale(1.3) rotate(180deg);
+    opacity: 0.7;
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .presentation-title {
+    font-size: 3rem;
+  }
+  
+  .presentation-subtitle {
+    font-size: 2rem;
+  }
+  
+  .section-title {
+    font-size: 2.5rem;
+  }
+  
+  .presentation-view .item-name {
+    font-size: 2rem;
+  }
+  
+  .presentation-view .points-value {
+    font-size: 3rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .presentation-view {
+    padding: 20px;
+  }
+  
+  .presentation-title {
+    font-size: 2rem;
+  }
+  
+  .presentation-subtitle {
+    font-size: 1.5rem;
+  }
+  
+  .section-title {
+    font-size: 2rem;
+  }
+  
+  .leaderboard-item {
+    flex-direction: column;
+    gap: 20px;
+    padding: 20px;
+    text-align: center;
+  }
+  
+  .presentation-view .rank-badge {
+    min-width: auto;
+  }
+  
+  .presentation-view .item-name {
+    font-size: 1.5rem;
+  }
+  
+  .presentation-view .points-breakdown {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .footer-text {
+    font-size: 1.2rem;
+  }
+}

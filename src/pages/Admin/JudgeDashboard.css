@@ -1,7 +1,40 @@
 .judge-dashboard {
-  padding: 30px;
-  max-width: 1400px;
+  padding: 20px;
+  max-width: 1600px;
   margin: 0 auto;
+}
+
+.judge-dashboard .dashboard-header {
+  background: white;
+  padding: 25px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.judge-dashboard .dashboard-header h1 {
+  margin: 0 0 8px 0;
+  color: #2d3748;
+  font-size: 1.8rem;
+}
+
+.judge-dashboard .dashboard-header p {
+  margin: 5px 0;
+  color: #718096;
+  font-size: 1rem;
+}
+
+.judge-dashboard .event-assignment {
+  color: #667eea !important;
+  font-size: 1.05rem !important;
+  margin-top: 10px !important;
+}
+
+.judge-dashboard .event-assignment strong {
+  color: #5a67d8;
 }
 
 .filter-section {

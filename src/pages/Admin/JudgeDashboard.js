@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, startTransition } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import StorageService from '../../services/StorageService';
+import FirebaseService from '../../services/FirebaseService';
 import './JudgeDashboard.css';
 
 const JudgeDashboard = () => {
   const [viewMode, setViewMode] = useState('individual'); // 'individual' or 'group'
   const [participants, setParticipants] = useState([]);
-  const [events] = useState(StorageService.getEvents());
+  const [events, setEvents] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [groupEvents, setGroupEvents] = useState([]);
   const [groupTeams, setGroupTeams] = useState([]);
   const [selectedParticipant, setSelectedParticipant] = useState(null);
@@ -31,6 +32,9 @@ const JudgeDashboard = () => {
   const [allScores, setAllScores] = useState([]);
   const [judgeLocks, setJudgeLocks] = useState([]);
   const [groupEventLocks, setGroupEventLocks] = useState([]);
+  const [declaredResults, setDeclaredResults] = useState([]);
+  const [sections, setSections] = useState([]);
+  const [eventCategoryCombinations, setEventCategoryCombinations] = useState([]);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -38,15 +42,44 @@ const JudgeDashboard = () => {
     if (!user || user.role !== 'judge') {
       navigate('/judge/login');
     } else {
-      setParticipants(StorageService.getParticipants());
-      setAllScores(StorageService.getScores());
-      setJudgeLocks(StorageService.getJudgeLocks());
-      const data = StorageService.getData();
-      setGroupEvents(data.groupEvents || []);
-      setGroupTeams(data.groupTeams || []);
-      setGroupEventLocks(data.groupEventLocks || []);
+      loadData();
     }
   }, [user, navigate]);
+
+  const loadData = async () => {
+    const allEvents = await FirebaseService.getEvents();
+    setEvents(allEvents);
+    const allCategories = await FirebaseService.getCategories();
+    setCategories(allCategories.sort((a, b) => (a.order || 0) - (b.order || 0)));
+    
+    // Filter participants by assigned talent test event
+    const allParticipants = await FirebaseService.getParticipants();
+    const filteredParticipants = user?.talentTestEventId 
+      ? allParticipants.filter(p => p.talentTestEventId === user.talentTestEventId)
+      : allParticipants;
+    setParticipants(filteredParticipants);
+    
+    const scores = await FirebaseService.getScores();
+    setAllScores(scores);
+    const locks = await FirebaseService.getJudgeLocks();
+    setJudgeLocks(locks);
+    const allGroupEvents = await FirebaseService.getGroupEvents();
+    setGroupEvents(allGroupEvents);
+    
+    // Filter group teams by assigned talent test event
+    const allGroupTeams = await FirebaseService.getGroupTeams();
+    const filteredGroupTeams = user?.talentTestEventId
+      ? allGroupTeams.filter(t => t.talentTestEventId === user.talentTestEventId)
+      : allGroupTeams;
+    setGroupTeams(filteredGroupTeams);
+    
+    const data = await FirebaseService.getData();
+    setGroupEventLocks(data.groupEventLocks || []);
+    const allDeclaredResults = await FirebaseService.getDeclaredResults();
+    setDeclaredResults(allDeclaredResults);
+    const allSections = await FirebaseService.getSections();
+    setSections(allSections);
+  };
 
   // Get judge's score for a specific participant and event
   const getJudgeScore = (participantId, eventId) => {
@@ -62,7 +95,7 @@ const JudgeDashboard = () => {
   const getScoringStatus = (participant) => {
     const eventIds = participant.eventIds 
       ? participant.eventIds 
-      : (participant.eventId ? [parseInt(participant.eventId)] : []);
+      : (participant.eventId ? [participant.eventId] : []);
     
     const scoredEvents = eventIds.filter(eventId => 
       getJudgeScore(participant.id, eventId)
@@ -85,7 +118,7 @@ const JudgeDashboard = () => {
     });
   };
 
-  const handleSubmitScore = (e) => {
+  const handleSubmitScore = async (e) => {
     e.preventDefault();
     
     if (!selectedEventId) {
@@ -118,7 +151,7 @@ const JudgeDashboard = () => {
 
     if (existingScore) {
       // Update existing score
-      StorageService.updateScore(
+      await FirebaseService.updateScore(
         selectedParticipant.id,
         selectedEventId,
         user.username,
@@ -127,12 +160,13 @@ const JudgeDashboard = () => {
       alert('Score updated successfully!');
     } else {
       // Add new score
-      StorageService.addScore(scoreData);
+      await FirebaseService.addScore(scoreData);
       alert('Score submitted successfully!');
     }
     
     // Refresh scores
-    setAllScores(StorageService.getScores());
+    const allScores = await FirebaseService.getScores();
+    setAllScores(allScores);
     
     // Close modal
     handleCloseScoring();
@@ -140,18 +174,20 @@ const JudgeDashboard = () => {
 
   const handleLogout = () => {
     logout();
-    navigate('/judge/login');
+    startTransition(() => {
+      navigate('/judge/login');
+    });
   };
 
   const getEventName = (eventId) => {
-    const event = events.find(e => e.id === parseInt(eventId));
+    const event = events.find(e => e.id === eventId);
     return event ? event.name : 'Unknown';
   };
 
   // Handle selecting a participant to score
-  const handleSelectParticipant = (participant, eventId) => {
+  const handleSelectParticipant = async (participant, eventId) => {
     // Check if result is declared for this event-category
-    const isDeclared = StorageService.isResultDeclared(eventId, participant.ageCategory);
+    const isDeclared = await FirebaseService.isResultDeclared(eventId, participant.ageCategory);
     
     if (isDeclared) {
       alert('Results have been declared for this event. Scoring is no longer available.');
@@ -216,11 +252,11 @@ const JudgeDashboard = () => {
       
       const eventIds = participant.eventIds 
         ? participant.eventIds 
-        : (participant.eventId ? [parseInt(participant.eventId)] : []);
+        : (participant.eventId ? [participant.eventId] : []);
       
       eventIds.forEach(eventId => {
         // Apply filters
-        if (filterEvent && parseInt(filterEvent) !== eventId) return;
+        if (filterEvent && filterEvent !== eventId) return;
         if (filterCategory && participant.ageCategory !== filterCategory) return;
         
         const score = getJudgeScore(participant.id, eventId);
@@ -267,35 +303,52 @@ const JudgeDashboard = () => {
     return rows;
   };
 
+  // Update event category combinations when data changes
+  useEffect(() => {
+    const updateEventCategoryCombinations = async () => {
+      const rows = getParticipantEventRows();
+      const combinations = new Map();
+      
+      for (const row of rows) {
+        const key = `${row.eventId}-${row.participant.ageCategory}`;
+        if (!combinations.has(key)) {
+          const isLocked = await FirebaseService.isScoreLocked(
+            user?.username,
+            row.eventId,
+            row.participant.ageCategory
+          );
+          
+          // Check if all participants have scores for this event-category combination
+          const participantsInCombo = rows.filter(
+            r => r.eventId === row.eventId && r.participant.ageCategory === row.participant.ageCategory
+          );
+          const allScoresEntered = participantsInCombo.every(r => r.totalScore !== null);
+          
+          combinations.set(key, {
+            eventId: row.eventId,
+            eventName: row.eventName,
+            category: row.participant.ageCategory,
+            isLocked,
+            allScoresEntered
+          });
+        }
+      }
+      
+      setEventCategoryCombinations(Array.from(combinations.values()));
+    };
+
+    if (user?.username && participants.length > 0) {
+      updateEventCategoryCombinations();
+    } else {
+      setEventCategoryCombinations([]);
+    }
+  }, [participants, filterEvent, filterCategory, allScores, judgeLocks, user]);
+
   const participantEventRows = getParticipantEventRows();
 
-  // Get unique event-category combinations from filtered rows
-  const getEventCategoryCombinations = () => {
-    const combinations = new Map();
-    
-    participantEventRows.forEach(row => {
-      const key = `${row.eventId}-${row.participant.ageCategory}`;
-      if (!combinations.has(key)) {
-        const isLocked = StorageService.isScoreLocked(
-          user?.username,
-          row.eventId,
-          row.participant.ageCategory
-        );
-        combinations.set(key, {
-          eventId: row.eventId,
-          eventName: row.eventName,
-          category: row.participant.ageCategory,
-          isLocked
-        });
-      }
-    });
-    
-    return Array.from(combinations.values());
-  };
-
-  const handleToggleLock = (eventId, category, isCurrentlyLocked) => {
+  const handleToggleLock = async (eventId, category, isCurrentlyLocked) => {
     // Check if result is declared
-    const isDeclared = StorageService.isResultDeclared(eventId, category);
+    const isDeclared = await FirebaseService.isResultDeclared(eventId, category);
     
     if (isDeclared) {
       alert('Results have been declared for this event. Lock status cannot be changed.');
@@ -304,27 +357,40 @@ const JudgeDashboard = () => {
     
     if (isCurrentlyLocked) {
       if (window.confirm(`Are you sure you want to unlock your scores for ${getEventName(eventId)} - ${category}? This will allow you to edit scores again.`)) {
-        StorageService.unlockScores(user.username, eventId, category);
-        setJudgeLocks(StorageService.getJudgeLocks());
+        await FirebaseService.unlockScores(user.username, eventId, category);
+        const locks = await FirebaseService.getJudgeLocks();
+        setJudgeLocks(locks);
       }
     } else {
       if (window.confirm(`Are you sure you want to lock your scores for ${getEventName(eventId)} - ${category}? You can unlock them later if needed.`)) {
-        StorageService.lockScores(user.username, eventId, category);
-        setJudgeLocks(StorageService.getJudgeLocks());
+        await FirebaseService.lockScores(user.username, eventId, category);
+        const locks = await FirebaseService.getJudgeLocks();
+        setJudgeLocks(locks);
       }
     }
   };
 
   const isEventCategoryLocked = (eventId, category) => {
-    return StorageService.isScoreLocked(user?.username, eventId, category);
+    const combo = eventCategoryCombinations.find(
+      c => c.eventId === eventId && c.category === category
+    );
+    return combo ? combo.isLocked : false;
   };
 
-  const handleToggleGroupEventLock = (groupEventId, isCurrentlyLocked) => {
+  const isResultDeclared = (eventId, category) => {
+    return declaredResults.some(r => r.eventId === eventId && r.category === category);
+  };
+
+  const isGroupResultDeclared = (groupEventId) => {
+    return declaredResults.some(r => r.groupEventId === groupEventId);
+  };
+
+  const handleToggleGroupEventLock = async (groupEventId, isCurrentlyLocked) => {
     const groupEvent = groupEvents.find(e => e.id === groupEventId);
     const eventName = groupEvent?.name || 'Unknown';
     
     // Check if result is declared
-    const isDeclared = StorageService.isGroupResultDeclared(groupEventId);
+    const isDeclared = await FirebaseService.isGroupResultDeclared(groupEventId);
     
     if (isDeclared) {
       alert('Results have been declared for this event. Lock status cannot be changed.');
@@ -333,7 +399,7 @@ const JudgeDashboard = () => {
     
     if (isCurrentlyLocked) {
       if (window.confirm(`Are you sure you want to unlock your scores for ${eventName}? This will allow you to edit scores again.`)) {
-        const data = StorageService.getData();
+        const data = await FirebaseService.getData();
         if (!data.groupEventLocks) data.groupEventLocks = [];
         
         // Remove lock
@@ -341,12 +407,15 @@ const JudgeDashboard = () => {
           lock => !(lock.judgeName === user.username && lock.groupEventId === groupEventId)
         );
         
-        StorageService.saveData(data);
-        setGroupEventLocks(data.groupEventLocks);
+        await FirebaseService.saveData(data);
+        
+        // Reload locks
+        const updatedData = await FirebaseService.getData();
+        setGroupEventLocks(updatedData.groupEventLocks || []);
       }
     } else {
       if (window.confirm(`Are you sure you want to lock your scores for ${eventName}? You can unlock them later if needed.`)) {
-        const data = StorageService.getData();
+        const data = await FirebaseService.getData();
         if (!data.groupEventLocks) data.groupEventLocks = [];
         
         // Add lock
@@ -357,8 +426,11 @@ const JudgeDashboard = () => {
           lockedDate: new Date().toISOString()
         });
         
-        StorageService.saveData(data);
-        setGroupEventLocks(data.groupEventLocks);
+        await FirebaseService.saveData(data);
+        
+        // Reload locks
+        const updatedData = await FirebaseService.getData();
+        setGroupEventLocks(updatedData.groupEventLocks || []);
       }
     }
   };
@@ -398,6 +470,9 @@ const JudgeDashboard = () => {
         <div>
           <h1>Judge Dashboard</h1>
           <p>Welcome, {user?.username}</p>
+          {user?.talentTestEventName && (
+            <p className="event-assignment">📋 Assigned Event: <strong>{user.talentTestEventName}</strong></p>
+          )}
         </div>
         <button onClick={handleLogout} className="btn btn-secondary">
           Logout
@@ -448,34 +523,43 @@ const JudgeDashboard = () => {
               onChange={(e) => setFilterCategory(e.target.value)}
             >
               <option value="">All Categories</option>
-              <option value="Junior">Junior (6-10)</option>
-              <option value="Intermediate">Intermediate (11-15)</option>
-              <option value="Senior">Senior (16-20)</option>
-              <option value="Super Senior">Super Senior (21-25)</option>
+              {categories.map(category => (
+                <option key={category.id} value={category.name}>
+                  {category.name} ({category.minAge}-{category.maxAge})
+                </option>
+              ))}
             </select>
           </div>
         </div>
 
         {/* Lock Status Section */}
-        {getEventCategoryCombinations().length > 0 && (
+        {eventCategoryCombinations.length > 0 && (
           <div className="lock-status-section">
             <h3>Score Lock Status</h3>
             <div className="lock-status-grid">
-              {getEventCategoryCombinations().map((combo) => (
+              {eventCategoryCombinations.map((combo) => (
                 <div key={`${combo.eventId}-${combo.category}`} className="lock-status-item">
                   <div className="lock-info">
                     <strong>{combo.eventName}</strong>
                     <span className="category-label">{combo.category}</span>
                   </div>
                   <div className="lock-actions">
-                    {StorageService.isResultDeclared(combo.eventId, combo.category) && (
+                    {isResultDeclared(combo.eventId, combo.category) && (
                       <span className="declared-badge">✓ Declared</span>
                     )}
                     <button
                       onClick={() => handleToggleLock(combo.eventId, combo.category, combo.isLocked)}
                       className={`btn-lock ${combo.isLocked ? 'locked' : 'unlocked'}`}
-                      disabled={StorageService.isResultDeclared(combo.eventId, combo.category)}
-                      title={StorageService.isResultDeclared(combo.eventId, combo.category) ? 'Cannot change lock status - Results have been declared' : combo.isLocked ? 'Click to unlock scores' : 'Click to lock scores'}
+                      disabled={isResultDeclared(combo.eventId, combo.category) || (!combo.isLocked && !combo.allScoresEntered)}
+                      title={
+                        isResultDeclared(combo.eventId, combo.category) 
+                          ? 'Cannot change lock status - Results have been declared' 
+                          : !combo.allScoresEntered && !combo.isLocked
+                          ? 'Please enter scores for all participants before locking'
+                          : combo.isLocked 
+                          ? 'Click to unlock scores' 
+                          : 'Click to lock scores'
+                      }
                     >
                       {combo.isLocked ? '🔓 Unlock' : '🔒 Lock'}
                     </button>
@@ -553,9 +637,9 @@ const JudgeDashboard = () => {
                       <button
                         onClick={() => handleSelectParticipant(row.participant, row.eventId)}
                         className="btn-small btn-primary"
-                        disabled={isLocked || StorageService.isResultDeclared(row.eventId, row.participant.ageCategory)}
+                        disabled={isLocked || isResultDeclared(row.eventId, row.participant.ageCategory)}
                         title={
-                          StorageService.isResultDeclared(row.eventId, row.participant.ageCategory) 
+                          isResultDeclared(row.eventId, row.participant.ageCategory) 
                             ? 'Results have been declared - Scoring is no longer available'
                             : isLocked 
                             ? 'Scores are locked for this event/category' 
@@ -564,7 +648,7 @@ const JudgeDashboard = () => {
                             : 'Click to score participant'
                         }
                       >
-                        {StorageService.isResultDeclared(row.eventId, row.participant.ageCategory) ? 'Declared' : isScored ? 'Update' : 'Score'}
+                        {isResultDeclared(row.eventId, row.participant.ageCategory) ? 'Declared' : isScored ? 'Update' : 'Score'}
                       </button>
                     </td>
                   </tr>
@@ -669,6 +753,11 @@ const JudgeDashboard = () => {
             {groupEvents.map(event => {
               const eventTeams = groupTeams.filter(t => t.groupEventId === event.id);
               
+              // Check if all teams have scores from this judge
+              const allTeamsScored = eventTeams.length > 0 && eventTeams.every(team => 
+                team.scores?.some(s => s.judgeName === user?.username)
+              );
+              
               return (
                 <div key={event.id} className="group-event-section">
                   <div className="group-event-header">
@@ -680,12 +769,20 @@ const JudgeDashboard = () => {
                       <button
                         onClick={() => handleToggleGroupEventLock(event.id, isGroupEventLocked(event.id))}
                         className={`btn-lock ${isGroupEventLocked(event.id) ? 'locked' : 'unlocked'}`}
-                        disabled={StorageService.isGroupResultDeclared(event.id)}
-                        title={StorageService.isGroupResultDeclared(event.id) ? 'Cannot change lock status - Results have been declared' : isGroupEventLocked(event.id) ? 'Click to unlock scores' : 'Click to lock scores'}
+                        disabled={isGroupResultDeclared(event.id) || (!isGroupEventLocked(event.id) && !allTeamsScored)}
+                        title={
+                          isGroupResultDeclared(event.id) 
+                            ? 'Cannot change lock status - Results have been declared' 
+                            : !allTeamsScored && !isGroupEventLocked(event.id)
+                            ? 'Please score all teams before locking'
+                            : isGroupEventLocked(event.id) 
+                            ? 'Click to unlock scores' 
+                            : 'Click to lock scores'
+                        }
                       >
                         {isGroupEventLocked(event.id) ? '🔓 Unlock' : '🔒 Lock'}
                       </button>
-                      {StorageService.isGroupResultDeclared(event.id) && (
+                      {isGroupResultDeclared(event.id) && (
                         <span className="declared-badge">✓ Declared</span>
                       )}
                       {isGroupEventFullyLocked(event.id) && (
@@ -715,7 +812,7 @@ const JudgeDashboard = () => {
                             <div key={team.id} className={`team-card ${eventLocked ? 'locked' : ''}`}>
                               <div className="team-header">
                                 <h4>Chest No: {team.chestNumber}</h4>
-                                <span className="section-badge">{StorageService.getSections().find(s => s.id === team.sectionId)?.name}</span>
+                                <span className="section-badge">{sections.find(s => s.id === team.sectionId)?.name}</span>
                               </div>
                               {hasScored ? (
                                 <div className="scored-info">
@@ -727,7 +824,7 @@ const JudgeDashboard = () => {
                                     <button
                                       onClick={() => {
                                         // Check if result is declared for this group event
-                                        const isDeclared = StorageService.isGroupResultDeclared(event.id);
+                                        const isDeclared = isGroupResultDeclared(event.id);
                                         if (isDeclared) {
                                           alert('Results have been declared for this event. Scoring is no longer available.');
                                           return;
@@ -742,8 +839,8 @@ const JudgeDashboard = () => {
                                       }}
                                       className="btn btn-small btn-info"
                                       style={{ marginTop: '10px' }}
-                                      disabled={StorageService.isGroupResultDeclared(event.id)}
-                                      title={StorageService.isGroupResultDeclared(event.id) ? 'Results have been declared - Scoring is no longer available' : 'Click to update team score'}
+                                      disabled={isGroupResultDeclared(event.id)}
+                                      title={isGroupResultDeclared(event.id) ? 'Results have been declared - Scoring is no longer available' : 'Click to update team score'}
                                     >
                                       Update Score
                                     </button>
@@ -753,7 +850,7 @@ const JudgeDashboard = () => {
                                 <button
                                   onClick={() => {
                                     // Check if result is declared for this group event
-                                    const isDeclared = StorageService.isGroupResultDeclared(event.id);
+                                    const isDeclared = isGroupResultDeclared(event.id);
                                     if (isDeclared) {
                                       alert('Results have been declared for this event. Scoring is no longer available.');
                                       return;
@@ -764,10 +861,10 @@ const JudgeDashboard = () => {
                                     setGroupScore({ score: 0, comments: '' });
                                   }}
                                   className="btn btn-primary"
-                                  disabled={eventLocked || StorageService.isGroupResultDeclared(event.id)}
-                                  title={StorageService.isGroupResultDeclared(event.id) ? 'Results have been declared - Scoring is no longer available' : eventLocked ? 'You have locked this event' : 'Click to score this team'}
+                                  disabled={eventLocked || isGroupResultDeclared(event.id)}
+                                  title={isGroupResultDeclared(event.id) ? 'Results have been declared - Scoring is no longer available' : eventLocked ? 'You have locked this event' : 'Click to score this team'}
                                 >
-                                  {eventLocked ? 'Locked' : StorageService.isGroupResultDeclared(event.id) ? 'Declared' : 'Score Team'}
+                                  {eventLocked ? 'Locked' : isGroupResultDeclared(event.id) ? 'Declared' : 'Score Team'}
                                 </button>
                               )}
                             </div>
@@ -788,7 +885,7 @@ const JudgeDashboard = () => {
           <div className="modal-content scoring-modal" onClick={(e) => e.stopPropagation()}>
             <button className="modal-close-btn" onClick={handleCloseGroupScoring}>×</button>
             <h2>Score Team: {selectedTeam.teamName}</h2>
-            <form onSubmit={(e) => {
+            <form onSubmit={async (e) => {
               e.preventDefault();
               const groupEvent = groupEvents.find(ge => ge.id === selectedGroupEventId);
               
@@ -800,42 +897,49 @@ const JudgeDashboard = () => {
                 }
               }
               
-              const data = StorageService.getData();
-              const teamIndex = data.groupTeams.findIndex(t => t.id === selectedTeam.id);
-              
-              if (teamIndex !== -1) {
-                if (!data.groupTeams[teamIndex].scores) {
-                  data.groupTeams[teamIndex].scores = [];
-                }
-                
-                // Check if judge already scored this team
-                const existingScoreIndex = data.groupTeams[teamIndex].scores.findIndex(
-                  s => s.judgeName === user.username
-                );
-                
-                const scoreData = {
-                  judgeName: user.username,
-                  score: parseFloat(groupScore.score),
-                  comments: groupScore.comments,
-                  timestamp: new Date().toISOString()
-                };
-                
-                if (existingScoreIndex !== -1) {
-                  data.groupTeams[teamIndex].scores[existingScoreIndex] = scoreData;
-                } else {
-                  data.groupTeams[teamIndex].scores.push(scoreData);
-                }
-                
-                StorageService.saveData(data);
-                setGroupTeams(data.groupTeams);
-                setGroupEventLocks(data.groupEventLocks || []);
-                handleCloseGroupScoring();
-                alert('Score submitted successfully!');
+              // Get current team data
+              const currentTeam = groupTeams.find(t => t.id === selectedTeam.id);
+              if (!currentTeam) {
+                alert('Team not found');
+                return;
               }
+              
+              // Update scores array
+              const scores = currentTeam.scores || [];
+              const existingScoreIndex = scores.findIndex(s => s.judgeName === user.username);
+              
+              const scoreData = {
+                judgeName: user.username,
+                score: parseFloat(groupScore.score),
+                comments: groupScore.comments,
+                timestamp: new Date().toISOString()
+              };
+              
+              if (existingScoreIndex !== -1) {
+                scores[existingScoreIndex] = scoreData;
+              } else {
+                scores.push(scoreData);
+              }
+              
+              // Update the team in Firebase
+              await FirebaseService.updateGroupTeam(selectedTeam.id, {
+                ...currentTeam,
+                scores: scores
+              });
+              
+              // Reload group teams to reflect changes
+              const updatedTeams = await FirebaseService.getGroupTeams();
+              const filteredGroupTeams = user?.talentTestEventId
+                ? updatedTeams.filter(t => t.talentTestEventId === user.talentTestEventId)
+                : updatedTeams;
+              setGroupTeams(filteredGroupTeams);
+              
+              handleCloseGroupScoring();
+              alert('Score submitted successfully!');
             }}>
               <div className="scoring-info">
                 <p><strong>Chest Number:</strong> {selectedTeam.chestNumber}</p>
-                <p><strong>Section:</strong> {StorageService.getSections().find(s => s.id === selectedTeam.sectionId)?.name}</p>
+                <p><strong>Section:</strong> {sections.find(s => s.id === selectedTeam.sectionId)?.name}</p>
               </div>
               
               {groupEvents.find(ge => ge.id === selectedGroupEventId)?.scoringType === 'quiz' ? (

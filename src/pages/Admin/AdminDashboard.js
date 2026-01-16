@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, startTransition } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import StorageService from '../../services/StorageService';
+import FirebaseService from '../../services/FirebaseService';
 import './AdminDashboard.css';
 
 const AdminDashboard = () => {
@@ -9,7 +9,8 @@ const AdminDashboard = () => {
   const [filteredParticipants, setFilteredParticipants] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [events] = useState(StorageService.getEvents());
+  const [events, setEvents] = useState([]);
+  const [categories, setCategories] = useState([]);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -21,8 +22,12 @@ const AdminDashboard = () => {
     }
   }, [user, navigate]);
 
-  const loadParticipants = () => {
-    const allParticipants = StorageService.getParticipants();
+  const loadParticipants = async () => {
+    const allEvents = await FirebaseService.getEvents();
+    setEvents(allEvents);
+    const allCategories = await FirebaseService.getCategories();
+    setCategories(allCategories.sort((a, b) => (a.order || 0) - (b.order || 0)));
+    const allParticipants = await FirebaseService.getParticipants();
     setParticipants(allParticipants);
     setFilteredParticipants([]);
     setSelectedCategory(null);
@@ -45,8 +50,8 @@ const AdminDashboard = () => {
     
     if (selectedEvent) {
       filtered = filtered.filter(p => {
-        const eventIds = p.eventIds || (p.eventId ? [parseInt(p.eventId)] : []);
-        return eventIds.includes(parseInt(selectedEvent));
+        const eventIds = p.eventIds || (p.eventId ? [p.eventId] : []);
+        return eventIds.includes(selectedEvent);
       });
     }
     
@@ -301,7 +306,7 @@ const AdminDashboard = () => {
     // Handle both old single eventId and new eventIds array
     const eventIds = participant.eventIds 
       ? participant.eventIds 
-      : (participant.eventId ? [parseInt(participant.eventId)] : []);
+      : (participant.eventId ? [participant.eventId] : []);
     
     return eventIds
       .map(eventId => {
@@ -313,15 +318,17 @@ const AdminDashboard = () => {
 
   const handleLogout = () => {
     logout();
-    navigate('/admin/login');
+    startTransition(() => {
+      navigate('/admin/login');
+    });
   };
 
   const stats = {
     total: participants.length,
-    junior: participants.filter(p => p.ageCategory === 'Junior').length,
-    intermediate: participants.filter(p => p.ageCategory === 'Intermediate').length,
-    senior: participants.filter(p => p.ageCategory === 'Senior').length,
-    superSenior: participants.filter(p => p.ageCategory === 'Super Senior').length
+    byCategory: categories.reduce((acc, cat) => {
+      acc[cat.name] = participants.filter(p => p.ageCategory === cat.name).length;
+      return acc;
+    }, {})
   };
 
   return (
@@ -340,6 +347,15 @@ const AdminDashboard = () => {
 
       {/* Navigation Menu */}
       <div className="admin-menu-grid">
+        <button 
+          onClick={() => navigate('/admin/talent-test-events')} 
+          className="menu-card"
+        >
+          <div className="menu-icon">🎭</div>
+          <div className="menu-title">Talent Test Events</div>
+          <div className="menu-subtitle">Create & Manage Events</div>
+        </button>
+
         <button 
           onClick={() => navigate('/admin/participants')} 
           className="menu-card"
@@ -425,38 +441,17 @@ const AdminDashboard = () => {
           <h3>Total Participants</h3>
           <p className="stat-number">{stats.total}</p>
         </div>
-        <div 
-          className={`stat-card ${selectedCategory === 'Junior' ? 'active' : ''}`}
-          onClick={() => handleCategoryFilter('Junior')}
-          style={{ cursor: 'pointer' }}
-        >
-          <h3>Junior (6-10)</h3>
-          <p className="stat-number">{stats.junior}</p>
-        </div>
-        <div 
-          className={`stat-card ${selectedCategory === 'Intermediate' ? 'active' : ''}`}
-          onClick={() => handleCategoryFilter('Intermediate')}
-          style={{ cursor: 'pointer' }}
-        >
-          <h3>Intermediate (11-15)</h3>
-          <p className="stat-number">{stats.intermediate}</p>
-        </div>
-        <div 
-          className={`stat-card ${selectedCategory === 'Senior' ? 'active' : ''}`}
-          onClick={() => handleCategoryFilter('Senior')}
-          style={{ cursor: 'pointer' }}
-        >
-          <h3>Senior (16-20)</h3>
-          <p className="stat-number">{stats.senior}</p>
-        </div>
-        <div 
-          className={`stat-card ${selectedCategory === 'Super Senior' ? 'active' : ''}`}
-          onClick={() => handleCategoryFilter('Super Senior')}
-          style={{ cursor: 'pointer' }}
-        >
-          <h3>Super Senior (21-25)</h3>
-          <p className="stat-number">{stats.superSenior}</p>
-        </div>
+        {categories.map(category => (
+          <div 
+            key={category.id}
+            className={`stat-card ${selectedCategory === category.name ? 'active' : ''}`}
+            onClick={() => handleCategoryFilter(category.name)}
+            style={{ cursor: 'pointer' }}
+          >
+            <h3>{category.name} ({category.minAge}-{category.maxAge})</h3>
+            <p className="stat-number">{stats.byCategory[category.name] || 0}</p>
+          </div>
+        ))}
       </div>
 
       {/* Event Filter Section */}

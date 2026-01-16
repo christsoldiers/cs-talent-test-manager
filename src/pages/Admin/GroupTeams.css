@@ -1,13 +1,39 @@
 .group-teams-view {
-  padding: 30px;
-  max-width: 1400px;
+  padding: 20px;
+  max-width: 1600px;
   margin: 0 auto;
+}
+
+.breadcrumb {
+  margin-bottom: 10px;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #667eea;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.btn-link:hover {
+  color: #5568d3;
+  text-decoration: underline;
+}
+
+.subtitle {
+  margin: 5px 0 0 0;
+  color: #718096;
+  font-size: 0.95rem;
 }
 
 .dashboard-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 30px;
   background: white;
   padding: 25px;
@@ -141,45 +167,45 @@
   transition: all 0.3s;
 }
 
-.btn-primary {
+.group-teams-view .btn-primary {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
 }
 
-.btn-primary:hover {
+.group-teams-view .btn-primary:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
-.btn-secondary {
+.group-teams-view .btn-secondary {
   background: #e2e8f0;
   color: #2d3748;
 }
 
-.btn-secondary:hover {
+.group-teams-view .btn-secondary:hover {
   background: #cbd5e0;
 }
 
-.btn-small {
+.group-teams-view .btn-small {
   padding: 6px 12px;
   font-size: 0.85rem;
 }
 
-.btn-info {
+.group-teams-view .btn-info {
   background: #4299e1;
   color: white;
 }
 
-.btn-info:hover {
+.group-teams-view .btn-info:hover {
   background: #3182ce;
 }
 
-.btn-danger {
+.group-teams-view .btn-danger {
   background: #f56565;
   color: white;
 }
 
-.btn-danger:hover {
+.group-teams-view .btn-danger:hover {
   background: #e53e3e;
 }
 

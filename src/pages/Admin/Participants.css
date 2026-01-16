@@ -1,13 +1,39 @@
 .participants-container {
   padding: 20px;
-  max-width: 1400px;
+  max-width: 1600px;
   margin: 0 auto;
+}
+
+.breadcrumb {
+  margin-bottom: 10px;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #667eea;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.btn-link:hover {
+  color: #5568d3;
+  text-decoration: underline;
+}
+
+.subtitle {
+  margin: 5px 0 0 0;
+  color: #718096;
+  font-size: 0.95rem;
 }
 
 .participants-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 30px;
   padding-bottom: 20px;
   border-bottom: 2px solid #e2e8f0;
@@ -69,6 +95,30 @@
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
+.filter-input {
+  width: 100%;
+  padding: 10px;
+  border: 2px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 14px;
+  background-color: white;
+  transition: all 0.2s;
+}
+
+.filter-input:hover {
+  border-color: #cbd5e0;
+}
+
+.filter-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.filter-input::placeholder {
+  color: #a0aec0;
+}
+
 .filter-actions {
   display: flex;
   gap: 10px;
@@ -106,7 +156,7 @@
   background-color: #38a169;
 }
 
-.btn-secondary {
+.participants-container .btn-secondary {
   padding: 10px 20px;
   background-color: #718096;
   color: white;
@@ -118,7 +168,7 @@
   transition: background-color 0.2s;
 }
 
-.btn-secondary:hover {
+.participants-container .btn-secondary:hover {
   background-color: #4a5568;
 }
 
@@ -318,6 +368,27 @@
   margin-bottom: 20px;
   justify-content: space-between;
   align-items: center;
+}
+
+.action-bar button:disabled {
+  background-color: #a0aec0;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.action-bar button:disabled:hover {
+  background-color: #a0aec0;
+  transform: none;
+}
+
+.registration-closed-notice {
+  color: #e53e3e;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 8px 12px;
+  background: #fff5f5;
+  border-radius: 6px;
+  border-left: 3px solid #e53e3e;
 }
 
 /* Participant Form */
