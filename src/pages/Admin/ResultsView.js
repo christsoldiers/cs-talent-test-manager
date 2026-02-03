@@ -37,25 +37,25 @@ const ResultsView = () => {
   }, [user, navigate]);
 
   const loadData = async () => {
-    const allEvents = await FirebaseService.getEvents();
+    const {
+      events: allEvents,
+      categories: allCategories,
+      participants: allParticipants,
+      sections: allSections,
+      judges: allJudges,
+      scores,
+      declaredResults,
+      pointsConfig
+    } = await FirebaseService.getResultsViewData();
+    
     setEvents(allEvents);
-    const allCategories = await FirebaseService.getCategories();
-    setCategories(allCategories.sort((a, b) => (a.order || 0) - (b.order || 0)));
-    const allParticipants = await FirebaseService.getParticipants();
+    setCategories(allCategories);
     setParticipants(allParticipants);
-    const allSections = await FirebaseService.getSections();
     setSections(allSections);
-    const allJudges = await FirebaseService.getJudges();
     setJudges(allJudges);
-    const scores = await FirebaseService.getScores();
     setAllScores(scores);
-    const declaredResults = await FirebaseService.getDeclaredResults();
     setDeclaredResults(declaredResults);
-    const data = await FirebaseService.getData();
-    setPointsConfig(data.pointsConfig || {
-      individual: { first: 5, second: 3, third: 1 },
-      group: { first: 10, second: 5, third: 3 }
-    });
+    setPointsConfig(pointsConfig);
   };
 
   useEffect(() => {

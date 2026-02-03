@@ -775,6 +775,522 @@ class FirebaseService {
     }
   }
 
+  // ===== BATCH API METHODS FOR DASHBOARDS =====
+  
+  /**
+   * Get all data needed for Admin Dashboard in a single optimized call
+   * @returns {Promise<{events: Array, categories: Array, participants: Array}>}
+   */
+  async getAdminDashboardData() {
+    try {
+      const [events, categories, participants] = await Promise.all([
+        this.getEvents(),
+        this.getCategories(),
+        this.getParticipants()
+      ]);
+      
+      return {
+        events,
+        categories: categories.sort((a, b) => (a.order || 0) - (b.order || 0)),
+        participants
+      };
+    } catch (error) {
+      console.error('Error fetching admin dashboard data:', error);
+      return { events: [], categories: [], participants: [] };
+    }
+  }
+
+  /**
+   * Get all data needed for Event Dashboard in a single optimized call
+   * @returns {Promise<{talentTestEvents: Array, categories: Array, participants: Array, groupTeams: Array, events: Array, groupEvents: Array, declaredResults: Array}>}
+   */
+  async getEventDashboardData() {
+    try {
+      const [talentTestEvents, categories, participants, groupTeams, events, groupEvents, declaredResults] = await Promise.all([
+        this.getTalentTestEvents(),
+        this.getCategories(),
+        this.getParticipants(),
+        this.getGroupTeams(),
+        this.getEvents(),
+        this.getGroupEvents(),
+        this.getDeclaredResults()
+      ]);
+      
+      return {
+        talentTestEvents,
+        categories: categories.sort((a, b) => (a.order || 0) - (b.order || 0)),
+        participants,
+        groupTeams,
+        events,
+        groupEvents,
+        declaredResults
+      };
+    } catch (error) {
+      console.error('Error fetching event dashboard data:', error);
+      return { 
+        talentTestEvents: [], 
+        categories: [], 
+        participants: [], 
+        groupTeams: [], 
+        events: [], 
+        groupEvents: [], 
+        declaredResults: [] 
+      };
+    }
+  }
+
+  /**
+   * Get all data needed for Judge Dashboard in a single optimized call
+   * @param {string} talentTestEventId - Optional talent test event ID to filter by
+   * @returns {Promise<Object>}
+   */
+  async getJudgeDashboardData(talentTestEventId = null) {
+    try {
+      const [events, categories, allParticipants, scores, locks, groupEvents, allGroupTeams, data, declaredResults, sections] = await Promise.all([
+        this.getEvents(),
+        this.getCategories(),
+        this.getParticipants(),
+        this.getScores(),
+        this.getJudgeLocks(),
+        this.getGroupEvents(),
+        this.getGroupTeams(),
+        this.getData(),
+        this.getDeclaredResults(),
+        this.getSections()
+      ]);
+      
+      // Filter by talent test event if provided
+      const participants = talentTestEventId
+        ? allParticipants.filter(p => p.talentTestEventId === talentTestEventId)
+        : allParticipants;
+      
+      const groupTeams = talentTestEventId
+        ? allGroupTeams.filter(t => t.talentTestEventId === talentTestEventId)
+        : allGroupTeams;
+      
+      return {
+        events,
+        categories: categories.sort((a, b) => (a.order || 0) - (b.order || 0)),
+        participants,
+        scores,
+        judgeLocks: locks,
+        groupEvents,
+        groupTeams,
+        groupEventLocks: data.groupEventLocks || [],
+        declaredResults,
+        sections
+      };
+    } catch (error) {
+      console.error('Error fetching judge dashboard data:', error);
+      return {
+        events: [],
+        categories: [],
+        participants: [],
+        scores: [],
+        judgeLocks: [],
+        groupEvents: [],
+        groupTeams: [],
+        groupEventLocks: [],
+        declaredResults: [],
+        sections: []
+      };
+    }
+  }
+
+  /**
+   * Get all data needed for Section Dashboard in a single optimized call
+   * @param {string} section - Section name to filter by
+   * @returns {Promise<Object>}
+   */
+  async getSectionDashboardData(section) {
+    try {
+      const [events, categories, talentTestEvents, activeEvent, churches, sectionParticipants] = await Promise.all([
+        this.getEvents(),
+        this.getCategories(),
+        this.getTalentTestEvents(),
+        this.getActiveTalentTestEvent(),
+        this.getChurchesBySection(section),
+        this.getParticipantsBySection(section)
+      ]);
+      
+      // Calculate age limits
+      const limits = categories.length > 0 ? {
+        minAge: Math.min(...categories.map(c => c.minAge)),
+        maxAge: Math.max(...categories.map(c => c.maxAge))
+      } : { minAge: 6, maxAge: 25 };
+      
+      return {
+        events,
+        ageLimits: limits,
+        talentTestEvents,
+        activeEvent,
+        churches: churches.map(c => typeof c === 'string' ? c : c.name),
+        participants: sectionParticipants
+      };
+    } catch (error) {
+      console.error('Error fetching section dashboard data:', error);
+      return {
+        events: [],
+        ageLimits: { minAge: 6, maxAge: 25 },
+        talentTestEvents: [],
+        activeEvent: null,
+        churches: [],
+        participants: []
+      };
+    }
+  }
+
+  /**
+   * Get all data needed for Event Detail View in a single optimized call
+   * @param {string} eventId - Talent test event ID
+   * @returns {Promise<Object>}
+   */
+  async getEventDetailViewData(eventId) {
+    try {
+      const [eventData, categories, participants, groupTeams, events, groupEvents, declaredResults, judges, groupEventLocks] = await Promise.all([
+        this.getTalentTestEventById(eventId),
+        this.getCategories(),
+        this.getParticipants(),
+        this.getGroupTeams(),
+        this.getEvents(),
+        this.getGroupEvents(),
+        this.getDeclaredResults(),
+        this.getJudges(),
+        this.getGroupEventLocks()
+      ]);
+      
+      return {
+        event: eventData,
+        categories: categories.sort((a, b) => (a.order || 0) - (b.order || 0)),
+        participants,
+        groupTeams,
+        events,
+        groupEvents,
+        declaredResults,
+        judges,
+        groupEventLocks
+      };
+    } catch (error) {
+      console.error('Error fetching event detail view data:', error);
+      return {
+        event: null,
+        categories: [],
+        participants: [],
+        groupTeams: [],
+        events: [],
+        groupEvents: [],
+        declaredResults: [],
+        judges: [],
+        groupEventLocks: []
+      };
+    }
+  }
+
+  /**
+   * Get all data needed for Section Event Detail View in a single optimized call
+   * @param {string} eventId - Talent test event ID
+   * @param {string} section - Section name
+   * @returns {Promise<Object>}
+   */
+  async getSectionEventDetailViewData(eventId, section) {
+    try {
+      const [eventData, participants] = await Promise.all([
+        this.getTalentTestEventById(eventId),
+        this.getParticipantsBySection(section)
+      ]);
+      
+      return {
+        event: eventData,
+        participants
+      };
+    } catch (error) {
+      console.error('Error fetching section event detail view data:', error);
+      return {
+        event: null,
+        participants: []
+      };
+    }
+  }
+
+  /**
+   * Get all data needed for Presentation/Home pages in a single optimized call
+   * @returns {Promise<Object>}
+   */
+  async getPresentationData() {
+    try {
+      const [participants, scores, sections, declaredResults, groupTeams, groupEvents, data, judges] = await Promise.all([
+        this.getParticipants(),
+        this.getScores(),
+        this.getSections(),
+        this.getDeclaredResults(),
+        this.getGroupTeams(),
+        this.getGroupEvents(),
+        this.getData(),
+        this.getJudges()
+      ]);
+      
+      return {
+        participants,
+        scores,
+        sections,
+        declaredResults,
+        groupTeams,
+        groupEvents,
+        pointsConfig: data.pointsConfig || {
+          individual: { first: 5, second: 3, third: 1 },
+          group: { first: 10, second: 5, third: 3 }
+        },
+        groupEventLocks: data.groupEventLocks || [],
+        judges
+      };
+    } catch (error) {
+      console.error('Error fetching presentation data:', error);
+      return {
+        participants: [],
+        scores: [],
+        sections: [],
+        declaredResults: [],
+        groupTeams: [],
+        groupEvents: [],
+        pointsConfig: {
+          individual: { first: 5, second: 3, third: 1 },
+          group: { first: 10, second: 5, third: 3 }
+        },
+        groupEventLocks: [],
+        judges: []
+      };
+    }
+  }
+
+  /**
+   * Get all data needed for SectionEventDashboard in a single optimized call
+   * @param {string} section - Section name
+   * @returns {Promise<Object>}
+   */
+  async getSectionEventDashboardData(section) {
+    try {
+      const [events, participants] = await Promise.all([
+        this.getTalentTestEvents(),
+        this.getParticipantsBySection(section)
+      ]);
+      
+      return {
+        events,
+        participants
+      };
+    } catch (error) {
+      console.error('Error fetching section event dashboard data:', error);
+      return {
+        events: [],
+        participants: []
+      };
+    }
+  }
+
+  /**
+   * Get all data needed for GroupTeams page in a single optimized call
+   * @param {string} eventId - Optional event ID to filter by
+   * @returns {Promise<Object>}
+   */
+  async getGroupTeamsData(eventId = null) {
+    try {
+      const [groupEvents, sections, talentTestEvents, allTeams, eventData, activeEvent] = await Promise.all([
+        this.getGroupEvents(),
+        this.getSections(),
+        this.getTalentTestEvents(),
+        this.getGroupTeams(),
+        eventId ? this.getTalentTestEventById(eventId) : Promise.resolve(null),
+        !eventId ? this.getActiveTalentTestEvent() : Promise.resolve(null)
+      ]);
+      
+      return {
+        groupEvents,
+        sections,
+        talentTestEvents,
+        teams: allTeams,
+        currentEvent: eventData,
+        activeEvent
+      };
+    } catch (error) {
+      console.error('Error fetching group teams data:', error);
+      return {
+        groupEvents: [],
+        sections: [],
+        talentTestEvents: [],
+        teams: [],
+        currentEvent: null,
+        activeEvent: null
+      };
+    }
+  }
+
+  /**
+   * Get all data needed for Participants page in a single optimized call
+   * @param {string} eventId - Optional event ID
+   * @param {string} section - Optional section for section users
+   * @returns {Promise<Object>}
+   */
+  async getParticipantsData(eventId = null, section = null) {
+    try {
+      const [sections, events, ageLimits, talentTestEvents, allParticipants, eventData, activeEvent, allChurches] = await Promise.all([
+        this.getSections(),
+        this.getEvents(),
+        this.getMinMaxAge(),
+        this.getTalentTestEvents(),
+        section ? this.getParticipantsBySection(section) : this.getParticipants(),
+        eventId ? this.getTalentTestEventById(eventId) : Promise.resolve(null),
+        !eventId ? this.getActiveTalentTestEvent() : Promise.resolve(null),
+        Promise.resolve([]) // churches loaded separately based on section
+      ]);
+      
+      return {
+        sections,
+        events,
+        ageLimits,
+        talentTestEvents,
+        participants: allParticipants,
+        currentEvent: eventData,
+        activeEvent
+      };
+    } catch (error) {
+      console.error('Error fetching participants data:', error);
+      return {
+        sections: [],
+        events: [],
+        ageLimits: { minAge: 6, maxAge: 25 },
+        talentTestEvents: [],
+        participants: [],
+        currentEvent: null,
+        activeEvent: null
+      };
+    }
+  }
+
+  /**
+   * Get all data needed for GroupResults page in a single optimized call
+   * @returns {Promise<Object>}
+   */
+  async getGroupResultsData() {
+    try {
+      const [groupEvents, groupTeams, sections, declaredResults] = await Promise.all([
+        this.getGroupEvents(),
+        this.getGroupTeams(),
+        this.getSections(),
+        this.getDeclaredResults()
+      ]);
+      
+      return {
+        groupEvents,
+        groupTeams,
+        sections,
+        declaredResults
+      };
+    } catch (error) {
+      console.error('Error fetching group results data:', error);
+      return {
+        groupEvents: [],
+        groupTeams: [],
+        sections: [],
+        declaredResults: []
+      };
+    }
+  }
+
+  /**
+   * Get all data needed for Leaderboard page in a single optimized call
+   * @returns {Promise<Object>}
+   */
+  async getLeaderboardData() {
+    try {
+      const [events, sections, participants, scores, groupTeams, groupEvents, data] = await Promise.all([
+        this.getEvents(),
+        this.getSections(),
+        this.getParticipants(),
+        this.getScores(),
+        this.getGroupTeams(),
+        this.getGroupEvents(),
+        this.getData()
+      ]);
+      
+      return {
+        events,
+        sections,
+        participants,
+        scores,
+        groupTeams,
+        groupEvents,
+        championsDeclared: data.championsDeclared || false,
+        pointsConfig: data.pointsConfig || {
+          individual: { first: 5, second: 3, third: 1 },
+          group: { first: 10, second: 5, third: 3 }
+        }
+      };
+    } catch (error) {
+      console.error('Error fetching leaderboard data:', error);
+      return {
+        events: [],
+        sections: [],
+        participants: [],
+        scores: [],
+        groupTeams: [],
+        groupEvents: [],
+        championsDeclared: false,
+        pointsConfig: {
+          individual: { first: 5, second: 3, third: 1 },
+          group: { first: 10, second: 5, third: 3 }
+        }
+      };
+    }
+  }
+
+  /**
+   * Get all data needed for ResultsView page in a single optimized call
+   * @returns {Promise<Object>}
+   */
+  async getResultsViewData() {
+    try {
+      const [events, categories, participants, sections, judges, scores, declaredResults, data] = await Promise.all([
+        this.getEvents(),
+        this.getCategories(),
+        this.getParticipants(),
+        this.getSections(),
+        this.getJudges(),
+        this.getScores(),
+        this.getDeclaredResults(),
+        this.getData()
+      ]);
+      
+      return {
+        events,
+        categories: categories.sort((a, b) => (a.order || 0) - (b.order || 0)),
+        participants,
+        sections,
+        judges,
+        scores,
+        declaredResults,
+        pointsConfig: data.pointsConfig || {
+          individual: { first: 5, second: 3, third: 1 },
+          group: { first: 10, second: 5, third: 3 }
+        }
+      };
+    } catch (error) {
+      console.error('Error fetching results view data:', error);
+      return {
+        events: [],
+        categories: [],
+        participants: [],
+        sections: [],
+        judges: [],
+        scores: [],
+        declaredResults: [],
+        pointsConfig: {
+          individual: { first: 5, second: 3, third: 1 },
+          group: { first: 10, second: 5, third: 3 }
+        }
+      };
+    }
+  }
+
   async assignChestNumber(participantId) {
     try {
       const participant = await getDoc(doc(db, this.collections.participants, participantId));
@@ -1654,6 +2170,108 @@ class FirebaseService {
       }
       
       await batch.commit();
+    }
+  }
+
+  // ===== NEWS =====
+  
+  async getNews() {
+    try {
+      const querySnapshot = await getDocs(
+        query(collection(db, 'news'), orderBy('date', 'desc'))
+      );
+      return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (error) {
+      console.error('Error fetching news:', error);
+      return [];
+    }
+  }
+
+  async addNews(newsData) {
+    try {
+      const docRef = await addDoc(collection(db, 'news'), {
+        ...newsData,
+        createdAt: new Date().toISOString()
+      });
+      return { id: docRef.id, ...newsData };
+    } catch (error) {
+      console.error('Error adding news:', error);
+      throw error;
+    }
+  }
+
+  async updateNews(id, newsData) {
+    try {
+      const docRef = doc(db, 'news', String(id));
+      await updateDoc(docRef, {
+        ...newsData,
+        updatedAt: new Date().toISOString()
+      });
+      return { id, ...newsData };
+    } catch (error) {
+      console.error('Error updating news:', error);
+      throw error;
+    }
+  }
+
+  async deleteNews(id) {
+    try {
+      await deleteDoc(doc(db, 'news', String(id)));
+      return true;
+    } catch (error) {
+      console.error('Error deleting news:', error);
+      throw error;
+    }
+  }
+
+  // ===== UPCOMING EVENTS =====
+  
+  async getUpcomingEvents() {
+    try {
+      const querySnapshot = await getDocs(
+        query(collection(db, 'upcomingEvents'), orderBy('startDate', 'asc'))
+      );
+      return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (error) {
+      console.error('Error fetching upcoming events:', error);
+      return [];
+    }
+  }
+
+  async addUpcomingEvent(eventData) {
+    try {
+      const docRef = await addDoc(collection(db, 'upcomingEvents'), {
+        ...eventData,
+        createdAt: new Date().toISOString()
+      });
+      return { id: docRef.id, ...eventData };
+    } catch (error) {
+      console.error('Error adding upcoming event:', error);
+      throw error;
+    }
+  }
+
+  async updateUpcomingEvent(id, eventData) {
+    try {
+      const docRef = doc(db, 'upcomingEvents', String(id));
+      await updateDoc(docRef, {
+        ...eventData,
+        updatedAt: new Date().toISOString()
+      });
+      return { id, ...eventData };
+    } catch (error) {
+      console.error('Error updating upcoming event:', error);
+      throw error;
+    }
+  }
+
+  async deleteUpcomingEvent(id) {
+    try {
+      await deleteDoc(doc(db, 'upcomingEvents', String(id)));
+      return true;
+    } catch (error) {
+      console.error('Error deleting upcoming event:', error);
+      throw error;
     }
   }
 }

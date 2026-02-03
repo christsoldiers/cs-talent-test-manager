@@ -37,16 +37,55 @@ const Presentation = () => {
   }, [autoSwitch]);
 
   const loadData = async () => {
-    const participants = await FirebaseService.getParticipants();
-    const allScores = await FirebaseService.getScores();
-    const sections = await FirebaseService.getSections();
-    const declaredResults = await FirebaseService.getDeclaredResults();
-    const groupTeams = await FirebaseService.getGroupTeams();
-    const groupEvents = await FirebaseService.getGroupEvents();
-    const data = await FirebaseService.getData();
-    const pointsConfig = data.pointsConfig || {
-      individual: { first: 5, second: 3, third: 1 },
-      group: { first: 10, second: 5, third: 3 }
+    const {
+      participants,
+      scores: allScores,
+      sections,
+      declaredResults,
+      groupTeams,
+      groupEvents,
+      pointsConfig,
+      groupEventLocks,
+      judges
+    } = await FirebaseService.getPresentationData();
+
+    // Pre-fetch all judge locks to avoid repeated API calls
+    const judgeLocks = await FirebaseService.getJudgeLocks();
+    
+    // Create a cache for lock status by event-category
+    const lockStatusCache = {};
+    
+    // Helper function to check if all judges are locked (cached)
+    const areAllJudgesLockedCached = (eventId, category) => {
+      const key = `${eventId}-${category}`;
+      if (lockStatusCache[key] !== undefined) {
+        return lockStatusCache[key];
+      }
+      
+      // Get all unique judges who have scored this event-category
+      const judgesWhoScored = [...new Set(
+        allScores
+          .filter(s => s.eventId === eventId)
+          .map(s => s.judgeName)
+      )];
+      
+      if (judgesWhoScored.length === 0) {
+        lockStatusCache[key] = false;
+        return false;
+      }
+      
+      // Check if all judges have locked
+      const allLocked = judgesWhoScored.every(judgeName =>
+        judgeLocks.some(lock =>
+          lock.judgeName === judgeName &&
+          lock.eventId === eventId &&
+          lock.category === category &&
+          lock.locked
+        )
+      );
+      
+      lockStatusCache[key] = allLocked;
+      return allLocked;
     };
 
     // Calculate points for each participant
@@ -64,7 +103,7 @@ const Presentation = () => {
         
         if (!isDeclared) continue;
         
-        const isLocked = await FirebaseService.areAllJudgesLocked(eventId, category);
+        const isLocked = areAllJudgesLockedCached(eventId, category);
         
         if (!isLocked) continue;
         
@@ -132,8 +171,8 @@ const Presentation = () => {
     });
     
     // Add group event points
-    const groupLocks = data.groupEventLocks || [];
-    const judges = await FirebaseService.getJudges();
+    // groupEventLocks already loaded from getPresentationData
+    // judges already loaded from getPresentationData
     
     groupEvents.forEach(groupEvent => {
       const isDeclared = declaredResults.some(r => String(r.groupEventId) === String(groupEvent.id));
@@ -142,12 +181,12 @@ const Presentation = () => {
       
       let isLocked = false;
       if (groupEvent.scoringType === 'quiz') {
-        isLocked = groupLocks.some(lock => 
+        isLocked = groupEventLocks.some(lock => 
           String(lock.groupEventId) === String(groupEvent.id) && lock.locked
         );
       } else {
         isLocked = judges.length > 0 && judges.every(judge =>
-          groupLocks.some(lock => 
+          groupEventLocks.some(lock => 
             lock.judgeName === judge.username && 
             String(lock.groupEventId) === String(groupEvent.id) && 
             lock.locked

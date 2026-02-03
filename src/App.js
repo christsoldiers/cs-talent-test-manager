@@ -27,10 +27,12 @@ import GroupTeams from './pages/Admin/GroupTeams';
 import GroupResults from './pages/Admin/GroupResults';
 import PrintableResults from './pages/Admin/PrintableResults';
 import Participants from './pages/Admin/Participants';
+import IndividualResults from './pages/Admin/IndividualResults';
 import MigrationUtility from './pages/Admin/MigrationUtility';
 import Presentation from './pages/Presentation';
 import MockDataMigrationPage from './pages/Admin/MockDataMigrationPage';
 import TalentTestEvents from './pages/Admin/TalentTestEvents';
+import NewsEventsManager from './pages/Admin/NewsEventsManager';
 import './App.css';
 
 function AppContent() {
@@ -68,6 +70,7 @@ function AppContent() {
               <Route path="/admin/event/:eventId" element={<EventDetailView />} />
               <Route path="/admin/talent-test-events" element={<TalentTestEvents />} />
               <Route path="/admin/master-data" element={<MasterData />} />
+              <Route path="/admin/news-events" element={<NewsEventsManager />} />
               
               {/* Admin - Event-specific pages */}
               <Route path="/admin/participants" element={<Participants />} />
@@ -75,6 +78,7 @@ function AppContent() {
               <Route path="/admin/results" element={<ResultsView />} />
               <Route path="/admin/group-results" element={<GroupResults />} />
               <Route path="/admin/leaderboard" element={<Leaderboard />} />
+              <Route path="/admin/individual-results" element={<IndividualResults />} />
               <Route path="/admin/printable-results" element={<PrintableResults />} />
               
               {/* Legacy/Utility Routes */}

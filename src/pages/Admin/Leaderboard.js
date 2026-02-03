@@ -33,24 +33,25 @@ const Leaderboard = () => {
   }, [user, navigate]);
 
   const loadData = async () => {
-    const allEvents = await FirebaseService.getEvents();
+    const {
+      events: allEvents,
+      sections: allSections,
+      participants: allParticipants,
+      scores,
+      groupTeams: allGroupTeams,
+      groupEvents: allGroupEvents,
+      championsDeclared,
+      pointsConfig
+    } = await FirebaseService.getLeaderboardData();
+    
     setEvents(allEvents);
-    const allSections = await FirebaseService.getSections();
     setSections(allSections);
-    const allParticipants = await FirebaseService.getParticipants();
     setParticipants(allParticipants);
-    const scores = await FirebaseService.getScores();
     setAllScores(scores);
-    const allGroupTeams = await FirebaseService.getGroupTeams();
     setGroupTeams(allGroupTeams);
-    const allGroupEvents = await FirebaseService.getGroupEvents();
     setGroupEvents(allGroupEvents);
-    const data = await FirebaseService.getData();
-    setChampionsDeclared(data.championsDeclared || false);
-    setPointsConfig(data.pointsConfig || {
-      individual: { first: 5, second: 3, third: 1 },
-      group: { first: 10, second: 5, third: 3 }
-    });
+    setChampionsDeclared(championsDeclared);
+    setPointsConfig(pointsConfig);
   };
 
   useEffect(() => {
@@ -60,10 +61,38 @@ const Leaderboard = () => {
   }, [participants, allScores, groupTeams, groupEvents]);
 
   const calculateLeaderboards = async () => {
-    // Get declared results
-    const declaredResults = await FirebaseService.getDeclaredResults();
+    // Get all necessary data in parallel
+    const [declaredResults, data, judges, judgeLocks] = await Promise.all([
+      FirebaseService.getDeclaredResults(),
+      FirebaseService.getData(),
+      FirebaseService.getJudges(),
+      FirebaseService.getJudgeLocks()
+    ]);
     
-    // Calculate points for each participant across all events
+    const groupLocks = data.groupEventLocks || [];
+    const allEvents = data.events || events; // Use fresh events data
+    
+    // Create a cache for judge lock status
+    const lockStatusCache = {};
+    
+    const areAllJudgesLockedCached = (eventId, category) => {
+      const key = `${eventId}_${category}`;
+      
+      if (lockStatusCache[key] !== undefined) {
+        return lockStatusCache[key];
+      }
+      
+      const eventLocks = judgeLocks.filter(lock => 
+        lock.eventId === eventId && lock.category === category
+      );
+      
+      const allLocked = eventLocks.length > 0 && eventLocks.every(lock => lock.locked);
+      lockStatusCache[key] = allLocked;
+      
+      return allLocked;
+    };
+    
+    // Calculate points for ALL participants (no filtering in main calculation)
     const participantPoints = {};
     
     for (const participant of participants) {
@@ -79,10 +108,10 @@ const Leaderboard = () => {
         
         if (!isDeclared) continue; // Skip if result not declared
         
-        // Check if this event-category is locked by all judges
-        const isLocked = await FirebaseService.areAllJudgesLocked(eventId, category);
+        // Check if this event-category is locked (using cache)
+        const isLocked = areAllJudgesLockedCached(eventId, category);
         
-        if (!isLocked) continue; // Skip if not all judges locked
+        if (!isLocked) continue; // Skip if not locked
         
         // Get participants for this event and category
         const eventParticipants = participants.filter(p => {
@@ -130,7 +159,7 @@ const Leaderboard = () => {
             participantPoints[participant.id].totalPoints += points;
             
             // Add event result with rank
-            const event = events.find(e => e.id === eventId);
+            const event = allEvents.find(e => e.id === eventId);
             if (event && rank <= 3) { // Only show top 3 positions
               participantPoints[participant.id].eventResults.push({
                 eventName: event.name,
@@ -163,9 +192,7 @@ const Leaderboard = () => {
     });
     
     // Add group event points
-    const data = await FirebaseService.getData();
-    const groupLocks = data.groupEventLocks || [];
-    const judges = await FirebaseService.getJudges();
+    // groupLocks and judges already fetched at the beginning
     
     groupEvents.forEach(groupEvent => {
       // Check if this group event is declared
@@ -290,7 +317,7 @@ const Leaderboard = () => {
     
     setChurchLeaderboard(churchArray);
     
-    // Calculate individual champion leaderboard
+    // Calculate individual champion leaderboard (all participants)
     const individualArray = Object.values(participantPoints)
       .sort((a, b) => b.totalPoints - a.totalPoints)
       .map((item, index) => ({ ...item, rank: index + 1 }));

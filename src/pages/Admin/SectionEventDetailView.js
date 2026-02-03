@@ -21,11 +21,11 @@ const SectionEventDetailView = () => {
 
   const loadEventData = async () => {
     try {
-      const eventData = await FirebaseService.getTalentTestEventById(eventId);
+      const { event: eventData, participants } = await FirebaseService.getSectionEventDetailViewData(eventId, user.section);
+      
       setEvent(eventData);
 
-      // Load stats for this event (filtered by section)
-      const participants = await FirebaseService.getParticipantsBySection(user.section);
+      // Calculate stats for this event (filtered by section)
       const eventParticipants = participants.filter(p => p.talentTestEventId === eventId);
 
       setStats({

@@ -23,12 +23,20 @@ const EventDashboard = () => {
   }, [user, navigate]);
 
   const loadData = async () => {
-    const events = await FirebaseService.getTalentTestEvents();
+    const { 
+      talentTestEvents: events, 
+      categories: allCategories, 
+      participants: allParticipants, 
+      groupTeams: allTeams, 
+      events: allEvents, 
+      groupEvents: allGroupEvents, 
+      declaredResults 
+    } = await FirebaseService.getEventDashboardData();
+    
     setTalentTestEvents(events);
     
-    // Load categories for sorting
-    const allCategories = await FirebaseService.getCategories();
-    const sortedCategories = allCategories.sort((a, b) => (a.order || 0) - (b.order || 0));
+    // Set categories for sorting
+    const sortedCategories = allCategories;
     setCategories(sortedCategories);
     
     // Build category order map
@@ -59,13 +67,6 @@ const EventDashboard = () => {
         return a.localeCompare(b);
       });
     };
-
-    // Calculate stats for each event
-    const allParticipants = await FirebaseService.getParticipants();
-    const allTeams = await FirebaseService.getGroupTeams();
-    const allEvents = await FirebaseService.getEvents();
-    const allGroupEvents = await FirebaseService.getGroupEvents();
-    const declaredResults = await FirebaseService.getDeclaredResults();
 
     const eventStats = {};
     const eventLocks = {};
@@ -296,6 +297,9 @@ const EventDashboard = () => {
         <div className="header-actions">
           <button onClick={handleMasterData} className="btn btn-secondary">
             📊 Master Data
+          </button>
+          <button onClick={() => navigate('/admin/news-events')} className="btn btn-secondary">
+            📰 News & Events
           </button>
           <button onClick={handleManageEvents} className="btn btn-primary">
             ⚙️ Manage Events

@@ -23,12 +23,10 @@ const AdminDashboard = () => {
   }, [user, navigate]);
 
   const loadParticipants = async () => {
-    const allEvents = await FirebaseService.getEvents();
-    setEvents(allEvents);
-    const allCategories = await FirebaseService.getCategories();
-    setCategories(allCategories.sort((a, b) => (a.order || 0) - (b.order || 0)));
-    const allParticipants = await FirebaseService.getParticipants();
-    setParticipants(allParticipants);
+    const { events, categories, participants } = await FirebaseService.getAdminDashboardData();
+    setEvents(events);
+    setCategories(categories);
+    setParticipants(participants);
     setFilteredParticipants([]);
     setSelectedCategory(null);
     setSelectedEvent(null);

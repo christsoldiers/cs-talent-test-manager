@@ -39,19 +39,18 @@ const SectionDashboard = () => {
   }, [user, navigate]);
 
   const loadData = async () => {
-    const allEvents = await FirebaseService.getEvents();
+    const {
+      events: allEvents,
+      ageLimits: limits,
+      talentTestEvents: ttEvents,
+      activeEvent: active,
+      churches: churchNames,
+      participants: sectionParticipants
+    } = await FirebaseService.getSectionDashboardData(user.section);
+    
     setEvents(allEvents);
-    
-    // Load age limits from categories
-    const limits = await FirebaseService.getMinMaxAge();
     setAgeLimits(limits);
-    
-    // Load talent test events
-    const ttEvents = await FirebaseService.getTalentTestEvents();
     setTalentTestEvents(ttEvents);
-    
-    // Get active event
-    const active = await FirebaseService.getActiveTalentTestEvent();
     setActiveEvent(active);
     
     // Set default talent test event if available
@@ -59,11 +58,8 @@ const SectionDashboard = () => {
       setFormData(prev => ({ ...prev, talentTestEventId: active.id }));
     }
     
-    // Load churches for this section
-    const churches = await FirebaseService.getChurchesBySection(user.section);
-    const churchNames = churches.map(c => typeof c === 'string' ? c : c.name);
     setAvailableChurches(churchNames);
-    loadParticipants();
+    setParticipants(sectionParticipants);
   };
 
   const loadParticipants = async () => {

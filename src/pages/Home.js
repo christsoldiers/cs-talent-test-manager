@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { FirebaseServiceWithoutLoading as FirebaseService } from '../services/FirebaseService';
 import './Home.css';
+
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 const Home = () => {
   const [resultsMarquee, setResultsMarquee] = useState({
@@ -9,23 +12,71 @@ const Home = () => {
     individualChampions: []
   });
   const [showMarquee, setShowMarquee] = useState(false);
+  const [news, setNews] = useState([]);
+  const [upcomingEvents, setUpcomingEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedNews, setSelectedNews] = useState(null);
+  const [selectedEvent, setSelectedEvent] = useState(null);
 
   useEffect(() => {
-    calculateResults();
+    loadNewsAndEvents();
   }, []);
 
+  const loadNewsAndEvents = async () => {
+    try {
+      // Show cached data immediately if available for better UX
+      const cachedNews = localStorage.getItem('home_news');
+      const cachedEvents = localStorage.getItem('home_events');
+      
+      if (cachedNews && cachedEvents) {
+        setNews(JSON.parse(cachedNews));
+        setUpcomingEvents(JSON.parse(cachedEvents));
+        setLoading(false);
+      }
+
+      // Always fetch fresh data (stale-while-revalidate pattern)
+      const [newsData, eventsData] = await Promise.all([
+        FirebaseService.getNews(),
+        FirebaseService.getUpcomingEvents()
+      ]);
+
+      // Update state with fresh data
+      const freshNews = newsData.slice(0, 2); // Show only 2 news items
+      const freshEvents = eventsData.slice(0, 3); // Show only 3 events
+      
+      setNews(freshNews);
+      setUpcomingEvents(freshEvents);
+
+      // Update cache
+      localStorage.setItem('home_news', JSON.stringify(freshNews));
+      localStorage.setItem('home_events', JSON.stringify(freshEvents));
+      localStorage.setItem('home_cache_timestamp', Date.now().toString());
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Error loading news and events:', error);
+      setLoading(false);
+    }
+  };
+
+  // useEffect(() => {
+  //   calculateResults();
+  // }, []);
+
   const calculateResults = async () => {
-    const participants = await FirebaseService.getParticipants();
-    const allScores = await FirebaseService.getScores();
-    const sections = await FirebaseService.getSections();
-    const declaredResults = await FirebaseService.getDeclaredResults();
-    const groupTeams = await FirebaseService.getGroupTeams();
-    const groupEvents = await FirebaseService.getGroupEvents();
-    const data = await FirebaseService.getData();
-    const pointsConfig = data.pointsConfig || {
-      individual: { first: 5, second: 3, third: 1 },
-      group: { first: 10, second: 5, third: 3 }
-    };
+    // Commented out to prevent API calls on home page load
+    /*
+    const {
+      participants,
+      scores: allScores,
+      sections,
+      declaredResults,
+      groupTeams,
+      groupEvents,
+      pointsConfig,
+      groupEventLocks,
+      judges
+    } = await FirebaseService.getPresentationData();
 
     // Calculate points for each participant
     const participantPoints = {};
@@ -108,12 +159,12 @@ const Home = () => {
     });
     
     // Add group event points
-    const groupLocks = data.groupEventLocks || [];
-    const judges = await FirebaseService.getJudges();
+    // groupEventLocks already loaded from getPresentationData
+    // judges already loaded from getPresentationData
     
     console.log('Home - Group Events:', groupEvents.length);
     console.log('Home - Group Teams:', groupTeams.length);
-    console.log('Home - Group Locks:', groupLocks);
+    console.log('Home - Group Locks:', groupEventLocks);
     console.log('Home - Judges:', judges);
     console.log('Home - Declared Results:', declaredResults);
     
@@ -128,12 +179,12 @@ const Home = () => {
       // Check if all judges have locked this group event
       let isLocked = false;
       if (groupEvent.scoringType === 'quiz') {
-        isLocked = groupLocks.some(lock => 
+        isLocked = groupEventLocks.some(lock => 
           String(lock.groupEventId) === String(groupEvent.id) && lock.locked
         );
       } else {
         isLocked = judges.length > 0 && judges.every(judge =>
-          groupLocks.some(lock => 
+          groupEventLocks.some(lock => 
             lock.judgeName === judge.username && 
             String(lock.groupEventId) === String(groupEvent.id) && 
             lock.locked
@@ -255,6 +306,7 @@ const Home = () => {
     const hasDeclarations = declaredResults.length > 0;
     
     setShowMarquee(hasData && hasDeclarations);
+    */
   };
 
   const getMedalEmoji = (index) => {
@@ -264,8 +316,73 @@ const Home = () => {
     return '';
   };
 
+  const trimContent = (content, maxLength = 120) => {
+    if (content.length <= maxLength) return content;
+    return content.substring(0, maxLength) + '...';
+  };
+
+  const createMarkup = (htmlContent) => {
+    return { __html: htmlContent };
+  };
+
+  const stripHtmlTags = (html) => {
+    // Just return the plain text without stripping, as we're not using HTML anymore
+    return html;
+  };
+
+  const openNewsModal = (article) => {
+    setSelectedNews(article);
+    document.body.style.overflow = 'hidden';
+  };
+
+  const closeNewsModal = () => {
+    setSelectedNews(null);
+    document.body.style.overflow = 'auto';
+  };
+
+  const openEventModal = (event) => {
+    setSelectedEvent(event);
+    document.body.style.overflow = 'hidden';
+  };
+
+  const closeEventModal = () => {
+    setSelectedEvent(null);
+    document.body.style.overflow = 'auto';
+  };
+
+  const formatEventDateRange = (event) => {
+    if (!event.startDate) return '';
+    const start = new Date(event.startDate);
+    const end = event.endDate ? new Date(event.endDate) : null;
+    
+    if (!end || start.getTime() === end.getTime()) {
+      // Single day event
+      return start.toLocaleDateString('en-US', { 
+        weekday: 'long',
+        month: 'long', 
+        day: 'numeric', 
+        year: 'numeric' 
+      });
+    }
+    
+    // Multi-day event
+    const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const endStr = end.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric',
+      year: 'numeric'
+    });
+    
+    if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+      return `${start.toLocaleDateString('en-US', { month: 'long' })} ${start.getDate()} - ${end.getDate()}, ${start.getFullYear()}`;
+    }
+    
+    return `${startStr} - ${endStr}`;
+  };
+
   return (
     <div className="home-page">
+      {/* Marquee section hidden - commented out API calls
       {showMarquee && (
         <div className="results-marquee-container">
           <div className="results-marquee">
@@ -309,7 +426,7 @@ const Home = () => {
                 </>
               )}
               
-              {/* Repeat content for seamless loop */}
+              {/* Repeat content for seamless loop *\/}
               {resultsMarquee.sectionChampions.length > 0 && (
                 <>
                   <span className="marquee-title">🏆 SECTION LEADERBOARD:</span>
@@ -348,34 +465,57 @@ const Home = () => {
           </div>
         </div>
       )}
+      */}
 
       <section className="hero-section">
         <div className="hero-content">
-          <h1>Welcome to Christ Soldiers</h1>
-          <p className="hero-subtitle">Youth Wing of Bethel Gospel Assembly Church</p>
+          <div className="hero-icon">✨🕊️✨</div>
+          <h1>Welcome to Christ Soldiers and Sunday School Association</h1>
+          <p className="hero-subtitle">⛪ Youth Wing of Bethel Gospel Assembly Church</p>
           <p className="hero-description">
             Empowering young believers to serve Christ with passion and purpose
           </p>
+          <div className="hero-stats">
+            <div className="stat-item">
+              <span className="stat-icon">👥</span>
+              <span className="stat-number">500+</span>
+              <span className="stat-label">Active Members</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-icon">🎯</span>
+              <span className="stat-number">50+</span>
+              <span className="stat-label">Events Annually</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-icon">🏆</span>
+              <span className="stat-number">15+</span>
+              <span className="stat-label">Sections</span>
+            </div>
+          </div>
         </div>
       </section>
 
       <section className="info-section">
+        <h2 className="section-title">🌟 About Christ Soldiers</h2>
         <div className="info-grid">
-          <div className="info-card">
+          <div className="info-card mission-card">
+            <div className="card-icon">🎯</div>
             <h3>Our Mission</h3>
             <p>
               To nurture and equip young people to become passionate followers of Christ,
               dedicated to serving God and their community.
             </p>
           </div>
-          <div className="info-card">
+          <div className="info-card vision-card">
+            <div className="card-icon">🔭</div>
             <h3>Our Vision</h3>
             <p>
               To raise a generation of Christ-centered youth who will impact the world
               through faith, love, and service.
             </p>
           </div>
-          <div className="info-card">
+          <div className="info-card involved-card">
+            <div className="card-icon">🤝</div>
             <h3>Get Involved</h3>
             <p>
               Join us in our various programs, events, and activities designed to
@@ -386,65 +526,228 @@ const Home = () => {
       </section>
 
       <section className="upcoming-events">
-        <h2>Upcoming Events</h2>
-        <div className="events-grid">
-          <div className="event-card">
-            <div className="event-date">
-              <span className="day">15</span>
-              <span className="month">JAN</span>
-            </div>
-            <div className="event-details">
-              <h4>Annual Talent Test</h4>
-              <p>Showcase your God-given talents in music, writing, and more!</p>
-              <span className="event-time">10:00 AM - 5:00 PM</span>
+        <h2>📅 Upcoming Events</h2>
+        {loading ? (
+          <div className="loading-placeholder">Loading events...</div>
+        ) : upcomingEvents.length > 0 ? (
+          <div className="events-grid">
+            {upcomingEvents.map(event => {
+              const startDate = event.startDate ? new Date(event.startDate) : (event.date ? new Date(event.date) : null);
+              
+              return (
+                <div key={event.id} className={`event-card ${event.type || 'talent-event'}`}>
+                  <div className="event-details">
+                    <div className="event-icon">{event.icon || '📅'}</div>
+                    <h4>{event.title}</h4>
+                    <p className="event-description">{trimContent(stripHtmlTags(event.description), 100)}</p>
+                    <p className="event-date-range">📅 {formatEventDateRange(event)}</p>
+                    {event.time && <span className="event-time">⏰ {event.time}</span>}
+                    {event.location && <span className="event-location">📍 {event.location}</span>}
+                    <button className="event-learn-more" onClick={() => openEventModal(event)}>Learn More</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="empty-state">
+            <p>No upcoming events at the moment. Check back soon!</p>
+          </div>
+        )}
+      </section>
+
+      <section className="news-section">
+        <h2>📰 Recent News & Updates</h2>
+        {loading ? (
+          <div className="loading-placeholder">Loading news...</div>
+        ) : news.length > 0 ? (
+          <div className="news-grid">
+            {news.map(article => (
+              <article key={article.id} className={`news-item ${article.isFeatured ? 'featured-news' : ''}`}>
+                {article.isFeatured && <div className="news-badge">🔥 Featured</div>}
+                {!article.isFeatured && article.badge && <div className="news-badge">{article.badge}</div>}
+                <div className="news-icon">{article.icon || '📝'}</div>
+                <h4>{article.title}</h4>
+                <p className="news-date">📅 {new Date(article.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                <p className="news-preview">{trimContent(stripHtmlTags(article.content))}</p>
+                <button className="news-read-more" onClick={() => openNewsModal(article)}>Read More →</button>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">
+            <p>No news available at the moment. Check back soon!</p>
+          </div>
+        )}
+      </section>
+
+      <section className="cta-section">
+        <div className="cta-content">
+          <h2>🌟 Join Our Community Today!</h2>
+          <p>Be part of a vibrant community of young believers making a difference</p>
+          <div className="cta-buttons">
+            <button className="cta-button primary">Get Started</button>
+            <button className="cta-button secondary">Learn More</button>
+          </div>
+        </div>
+      </section>
+
+      <section className="testimonials-section">
+        <h2>💬 What Our Members Say</h2>
+        <div className="testimonials-grid">
+          <div className="testimonial-card">
+            <div className="quote-icon">❝</div>
+            <p className="testimonial-text">
+              "Christ Soldiers has been a blessing in my life. The talent test helped me discover and develop my God-given gifts!"
+            </p>
+            <div className="testimonial-author">
+              <div className="author-avatar">👤</div>
+              <div className="author-info">
+                <strong>Sarah Johnson</strong>
+                <span>Active Member Since 2023</span>
+              </div>
             </div>
           </div>
-          <div className="event-card">
-            <div className="event-date">
-              <span className="day">22</span>
-              <span className="month">JAN</span>
-            </div>
-            <div className="event-details">
-              <h4>Youth Retreat</h4>
-              <p>A weekend of worship, fellowship, and spiritual growth</p>
-              <span className="event-time">Friday - Sunday</span>
+          <div className="testimonial-card">
+            <div className="quote-icon">❝</div>
+            <p className="testimonial-text">
+              "The fellowship and spiritual growth I've experienced here is amazing. This ministry truly makes an impact!"
+            </p>
+            <div className="testimonial-author">
+              <div className="author-avatar">👤</div>
+              <div className="author-info">
+                <strong>David Martin</strong>
+                <span>Youth Leader</span>
+              </div>
             </div>
           </div>
-          <div className="event-card">
-            <div className="event-date">
-              <span className="day">05</span>
-              <span className="month">FEB</span>
-            </div>
-            <div className="event-details">
-              <h4>Community Outreach</h4>
-              <p>Serve our community with love and compassion</p>
-              <span className="event-time">2:00 PM - 6:00 PM</span>
+          <div className="testimonial-card">
+            <div className="quote-icon">❝</div>
+            <p className="testimonial-text">
+              "From worship sessions to community outreach, every event is filled with purpose and joy. Highly recommend!"
+            </p>
+            <div className="testimonial-author">
+              <div className="author-avatar">👤</div>
+              <div className="author-info">
+                <strong>Emily Thomas</strong>
+                <span>Volunteer Coordinator</span>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="news-section">
-        <h2>Recent News</h2>
-        <div className="news-grid">
-          <article className="news-item">
-            <h4>Registration Open for Talent Test 2025</h4>
-            <p className="news-date">December 20, 2025</p>
-            <p>
-              We're excited to announce that registration is now open for our Annual Talent Test.
-              Participants can register through our admin portal.
-            </p>
-          </article>
-          <article className="news-item">
-            <h4>Successful Christmas Celebration</h4>
-            <p className="news-date">December 25, 2025</p>
-            <p>
-              Our Christmas celebration was a tremendous blessing with over 200 youth in attendance.
-              Thank you to everyone who participated!
-            </p>
-          </article>
+      {/* News Article Modal */}
+      {selectedNews && (
+        <div className="news-modal-overlay" onClick={closeNewsModal}>
+          <div className="news-modal-paper" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={closeNewsModal}>
+              ✕
+            </button>
+            <div className="paper-header">
+              <div className="paper-icon">{selectedNews.icon || '📝'}</div>
+              <h2 className="paper-title">{selectedNews.title}</h2>
+              {selectedNews.isFeatured && <div className="paper-badge featured">🔥 Featured</div>}
+              {!selectedNews.isFeatured && selectedNews.badge && (
+                <div className="paper-badge">{selectedNews.badge}</div>
+              )}
+              <p className="paper-date">
+                📅 {new Date(selectedNews.date).toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}
+              </p>
+            </div>
+            <div className="paper-divider"></div>
+            <div className="paper-content">
+              <div className="preserve-whitespace">{selectedNews.content}</div>
+            </div>
+            <div className="paper-footer">
+              <span>📰 Christ Soldiers News</span>
+            </div>
+          </div>
         </div>
-      </section>
+      )}
+
+      {/* Event Detail Modal */}
+      {selectedEvent && (
+        <div className="event-modal-overlay" onClick={closeEventModal}>
+          <div className="event-modal-card" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={closeEventModal}>
+              ✕
+            </button>
+            <div className="event-modal-header">
+              <div className="event-modal-icon">{selectedEvent.icon || '📅'}</div>
+              <h2 className="event-modal-title">{selectedEvent.title}</h2>
+              <div className="event-modal-type-badge">{selectedEvent.type}</div>
+            </div>
+            <div className="event-modal-divider"></div>
+            <div className="event-modal-details">
+              <div className="event-modal-info-row">
+                <span className="event-info-label">📅 Date</span>
+                <span className="event-info-value">{formatEventDateRange(selectedEvent)}</span>
+              </div>
+              {selectedEvent.time && (
+                <div className="event-modal-info-row">
+                  <span className="event-info-label">⏰ Time</span>
+                  <span className="event-info-value">{selectedEvent.time}</span>
+                </div>
+              )}
+              {selectedEvent.location && (
+                <div className="event-modal-info-row">
+                  <span className="event-info-label">📍 Location</span>
+                  <span className="event-info-value">
+                    {selectedEvent.googleMapsUrl ? (
+                      <a href={selectedEvent.googleMapsUrl} target="_blank" rel="noopener noreferrer" className="location-link">
+                        {selectedEvent.location} <span className="external-link-icon">↗</span>
+                      </a>
+                    ) : (
+                      selectedEvent.location
+                    )}
+                  </span>
+                </div>
+              )}
+              <div className="event-modal-description">
+                <h3>About This Event</h3>
+                <div className="preserve-whitespace">{selectedEvent.description}</div>
+              </div>
+            </div>
+            <div className="event-modal-footer">
+              <button className="event-modal-register-btn">Register Now</button>
+              <button className="event-modal-close-btn" onClick={closeEventModal}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <footer className="home-footer">
+        <div className="footer-content">
+          <div className="footer-section">
+            <h3>🕊️ Christ Soldiers & Sunday School Association</h3>
+            <p>BGA Youth Wing - Empowering youth through faith and fellowship</p>
+          </div>
+          <div className="footer-section">
+            <h4>Quick Links</h4>
+            <ul>
+              <li><Link to="/about">About Us</Link></li>
+              <li><Link to="/events">Events</Link></li>
+              <li><Link to="/gallery">Gallery</Link></li>
+              <li><Link to="/contact">Contact</Link></li>
+            </ul>
+          </div>
+          <div className="footer-section">
+            <h4>Admin</h4>
+            <Link to="/admin/login" className="admin-portal-link">
+              🔐 Admin Portal
+            </Link>
+          </div>
+        </div>
+        <div className="footer-bottom">
+          <p>&copy; {new Date().getFullYear()} Christ Soldiers & Sunday School Association. All rights reserved.</p>
+        </div>
+      </footer>
     </div>
   );
 };

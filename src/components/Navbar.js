@@ -5,8 +5,17 @@ import './Navbar.css';
 
 const Navbar = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const location = useLocation();
   const { user } = useAuth();
+
+  React.useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 50);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);
@@ -21,10 +30,14 @@ const Navbar = () => {
   };
 
   return (
-    <nav className="navbar">
+    <nav className={`navbar ${scrolled ? 'scrolled' : ''}`}>
       <div className="navbar-container">
         <Link to="/" className="navbar-logo" onClick={closeMenu}>
-          <h2>Christ Soldiers</h2>
+          <span className="logo-icon">🕊️</span>
+          <div className="logo-text">
+            <h2>Christ Soldiers</h2>
+            <span className="logo-subtitle">BGA Youth Wing</span>
+          </div>
         </Link>
         
         <div className="menu-icon" onClick={toggleMenu}>
@@ -93,15 +106,6 @@ const Navbar = () => {
                   Contact Us
                 </Link>
               </li>
-              <li className="nav-item">
-                <Link 
-                  to="/admin/login" 
-                  className={`nav-link admin-link ${isActive('/admin/login')}`}
-                  onClick={closeMenu}
-                >
-                  Admin Portal
-                </Link>
-              </li>
             </>
           ) : (
             // Menu for logged in users
@@ -129,3 +133,4 @@ const Navbar = () => {
 };
 
 export default Navbar;
+        

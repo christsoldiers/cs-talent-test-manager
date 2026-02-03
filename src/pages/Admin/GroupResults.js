@@ -28,13 +28,16 @@ const GroupResults = () => {
   }, [user, navigate]);
 
   const loadData = async () => {
-    const allGroupEvents = await FirebaseService.getGroupEvents();
+    const {
+      groupEvents: allGroupEvents,
+      groupTeams: allGroupTeams,
+      sections: allSections,
+      declaredResults
+    } = await FirebaseService.getGroupResultsData();
+    
     setGroupEvents(allGroupEvents);
-    const allGroupTeams = await FirebaseService.getGroupTeams();
     setGroupTeams(allGroupTeams);
-    const allSections = await FirebaseService.getSections();
     setSections(allSections);
-    const declaredResults = await FirebaseService.getDeclaredResults();
     setDeclaredResults(declaredResults);
   };
 

@@ -29,12 +29,22 @@ const EventDetailView = () => {
   }, [user, navigate, eventId]);
 
   const loadData = async () => {
-    const eventData = await FirebaseService.getTalentTestEventById(eventId);
+    const {
+      event: eventData,
+      categories: allCategories,
+      participants: allParticipants,
+      groupTeams: allTeams,
+      events: allEvents,
+      groupEvents: allGroupEvents,
+      declaredResults,
+      judges,
+      groupEventLocks
+    } = await FirebaseService.getEventDetailViewData(eventId);
+    
     setEvent(eventData);
     
-    // Load categories for sorting
-    const allCategories = await FirebaseService.getCategories();
-    const sortedCategories = allCategories.sort((a, b) => (a.order || 0) - (b.order || 0));
+    // Set sorted categories
+    const sortedCategories = allCategories;
     setCategories(sortedCategories);
     
     // Build category order map
@@ -65,12 +75,6 @@ const EventDetailView = () => {
         return a.localeCompare(b);
       });
     };
-
-    const allParticipants = await FirebaseService.getParticipants();
-    const allTeams = await FirebaseService.getGroupTeams();
-    const allEvents = await FirebaseService.getEvents();
-    const allGroupEvents = await FirebaseService.getGroupEvents();
-    const declaredResults = await FirebaseService.getDeclaredResults();
 
     const eventParticipants = allParticipants.filter(p => p.talentTestEventId === eventId);
     const eventTeams = allTeams.filter(t => t.talentTestEventId === eventId);
@@ -121,9 +125,7 @@ const EventDetailView = () => {
 
     const results = await Promise.all(lockCheckPromises);
 
-    // Check group event locks
-    const judges = await FirebaseService.getJudges();
-    const groupEventLocks = await FirebaseService.getGroupEventLocks();
+    // Check group event locks (already loaded)
     
     const groupLockCheckPromises = Array.from(eventGroupCombos).map(async (groupEventId) => {
       const groupEvent = allGroupEvents.find(ge => String(ge.id) === String(groupEventId));
@@ -192,6 +194,58 @@ const EventDetailView = () => {
 
   const navigateTo = (path) => {
     navigate(path, { state: { eventId } });
+  };
+
+  const handleDeclareChampions = () => {
+    // Check if there are any pending or locked (but not declared) events
+    const hasPendingEvents = pendingScores.length > 0;
+    const hasLockedEvents = lockedScores.length > 0;
+    const totalEvents = pendingScores.length + lockedScores.length + declaredScores.length;
+    
+    if (totalEvents === 0) {
+      alert('⚠️ No Events Found\n\nThere are no events registered for this talent test. Please add events and participants before declaring champions.');
+      return;
+    }
+    
+    if (hasPendingEvents) {
+      const pendingList = pendingScores.slice(0, 5).join('\n• ');
+      const moreText = pendingScores.length > 5 ? `\n• ...and ${pendingScores.length - 5} more` : '';
+      
+      alert(
+        `⚠️ Incomplete Events Detected\n\n` +
+        `${pendingScores.length} event${pendingScores.length > 1 ? 's are' : ' is'} still in progress:\n\n` +
+        `• ${pendingList}${moreText}\n\n` +
+        `Please ensure all judges have completed scoring and locked their results before declaring champions.`
+      );
+      return;
+    }
+    
+    if (hasLockedEvents) {
+      const lockedList = lockedScores.slice(0, 5).join('\n• ');
+      const moreText = lockedScores.length > 5 ? `\n• ...and ${lockedScores.length - 5} more` : '';
+      
+      alert(
+        `⚠️ Results Not Declared\n\n` +
+        `${lockedScores.length} event${lockedScores.length > 1 ? 's have' : ' has'} been locked but not officially declared:\n\n` +
+        `• ${lockedList}${moreText}\n\n` +
+        `Please declare the results for all events before declaring overall champions.`
+      );
+      return;
+    }
+    
+    // All events are declared - show confirmation
+    const confirmMessage = 
+      `🏆 Declare Overall Champions?\n\n` +
+      `✅ All ${declaredScores.length} event${declaredScores.length > 1 ? 's have' : ' has'} been declared\n\n` +
+      `This will finalize the competition and declare:\n` +
+      `• Section Champions\n` +
+      `• Church Champions\n` +
+      `• Individual Champions\n\n` +
+      `Do you want to proceed to the leaderboard?`;
+    
+    if (window.confirm(confirmMessage)) {
+      navigateTo('/admin/leaderboard');
+    }
   };
 
   if (!event) {
@@ -399,6 +453,20 @@ const EventDetailView = () => {
           <h3>Leaderboard</h3>
           <p>View overall rankings and standings</p>
           <div className="action-badge">View Rankings</div>
+        </div>
+
+        <div className="action-card" onClick={() => navigateTo('/admin/individual-results')}>
+          <div className="action-icon">🔍</div>
+          <h3>Individual Results</h3>
+          <p>Filter and view detailed individual results by section and church</p>
+          <div className="action-badge">Search Results</div>
+        </div>
+
+        <div className="action-card highlight-card" onClick={handleDeclareChampions}>
+          <div className="action-icon">👑</div>
+          <h3>Declare Champions</h3>
+          <p>Finalize and declare the overall champions</p>
+          <div className="action-badge declare-badge">Declare Winners</div>
         </div>
 
         <div className="action-card" onClick={() => navigateTo('/admin/printable-results')}>

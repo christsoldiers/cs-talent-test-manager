@@ -34,21 +34,20 @@ const GroupTeams = () => {
   }, [user, navigate]);
 
   const loadData = async () => {
-    // Load group events from Firebase
-    const allGroupEvents = await FirebaseService.getGroupEvents();
+    const {
+      groupEvents: allGroupEvents,
+      sections: allSections,
+      talentTestEvents: ttEvents,
+      teams: allTeams,
+      currentEvent: event,
+      activeEvent
+    } = await FirebaseService.getGroupTeamsData(eventId);
+    
     setGroupEvents(allGroupEvents);
-    
-    const allSections = await FirebaseService.getSections();
     setSections(allSections);
-    
-    const ttEvents = await FirebaseService.getTalentTestEvents();
     setTalentTestEvents(ttEvents);
     
-    // Load all teams
-    const allTeams = await FirebaseService.getGroupTeams();
-    
     if (eventId) {
-      const event = await FirebaseService.getTalentTestEventById(eventId);
       setCurrentEvent(event);
       setTeamFormData(prev => ({ ...prev, talentTestEventId: eventId }));
       
@@ -58,7 +57,6 @@ const GroupTeams = () => {
     } else {
       setTeams(allTeams);
       
-      const activeEvent = await FirebaseService.getActiveTalentTestEvent();
       if (activeEvent && !teamFormData.talentTestEventId) {
         setTeamFormData(prev => ({ ...prev, talentTestEventId: activeEvent.id }));
       }

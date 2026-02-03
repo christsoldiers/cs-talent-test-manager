@@ -45,28 +45,30 @@ const Participants = () => {
   }, [user, navigate]);
 
   const loadParticipants = async () => {
-    const allSections = await FirebaseService.getSections();
+    const {
+      sections: allSections,
+      events: allEvents,
+      ageLimits: limits,
+      talentTestEvents: ttEvents,
+      participants: allParticipants,
+      currentEvent: event,
+      activeEvent
+    } = await FirebaseService.getParticipantsData(eventId, user.role === 'section' ? user.section : null);
+    
     setSections(allSections);
-    const allEvents = await FirebaseService.getEvents();
     setEvents(allEvents);
-    
-    // Load age limits from categories
-    const limits = await FirebaseService.getMinMaxAge();
     setAgeLimits(limits);
-    
-    const ttEvents = await FirebaseService.getTalentTestEvents();
     setTalentTestEvents(ttEvents);
     
     if (eventId) {
-      const event = await FirebaseService.getTalentTestEventById(eventId);
       setCurrentEvent(event);
       setFormData(prev => ({ ...prev, talentTestEventId: eventId }));
+    } else if (activeEvent && !formData.talentTestEventId) {
+      setFormData(prev => ({ ...prev, talentTestEventId: activeEvent.id }));
     }
     
-    // Load participants based on user role
-    let allParticipants;
+    // Handle section-specific logic
     if (user.role === 'section') {
-      allParticipants = await FirebaseService.getParticipantsBySection(user.section);
       // Pre-select the section filter for section users
       setSelectedSection(user.section);
       // Set section in form data
@@ -75,8 +77,6 @@ const Participants = () => {
       const churches = await FirebaseService.getChurchesBySection(user.section);
       const churchNames = churches.map(c => typeof c === 'string' ? c : c.name);
       setAvailableChurches(churchNames);
-    } else {
-      allParticipants = await FirebaseService.getParticipants();
     }
     
     // Filter by event if eventId is provided

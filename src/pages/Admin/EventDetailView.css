@@ -242,6 +242,43 @@
   font-size: 0.9rem;
 }
 
+.event-detail-container .highlight-card {
+  background: linear-gradient(135deg, #ffd89b 0%, #f9c74f 100%);
+  border-color: #f9844a;
+}
+
+.event-detail-container .highlight-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 12px 28px rgba(249, 132, 74, 0.35);
+  border-color: #f9844a;
+}
+
+.event-detail-container .highlight-card h3 {
+  color: #7c2d12;
+}
+
+.event-detail-container .highlight-card p {
+  color: #854d0e;
+}
+
+.event-detail-container .declare-badge {
+  background: linear-gradient(135deg, #f9844a 0%, #f76707 100%);
+  color: white;
+  font-weight: 700;
+  animation: pulse-badge 2s ease-in-out infinite;
+}
+
+@keyframes pulse-badge {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 2px 4px rgba(249, 132, 74, 0.3);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(249, 132, 74, 0.5);
+  }
+}
+
 .event-detail-container .btn {
   padding: 10px 20px;
   border: none;

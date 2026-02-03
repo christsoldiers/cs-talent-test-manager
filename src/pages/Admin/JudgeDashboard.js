@@ -16,11 +16,7 @@ const JudgeDashboard = () => {
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [selectedGroupEventId, setSelectedGroupEventId] = useState(null);
   const [scores, setScores] = useState({
-    criteria1: 0,
-    criteria2: 0,
-    criteria3: 0,
-    criteria4: 0,
-    criteria5: 0,
+    score: 0,
     comments: ''
   });
   const [groupScore, setGroupScore] = useState({
@@ -47,37 +43,28 @@ const JudgeDashboard = () => {
   }, [user, navigate]);
 
   const loadData = async () => {
-    const allEvents = await FirebaseService.getEvents();
+    const {
+      events: allEvents,
+      categories: allCategories,
+      participants: filteredParticipants,
+      scores,
+      judgeLocks: locks,
+      groupEvents: allGroupEvents,
+      groupTeams: filteredGroupTeams,
+      groupEventLocks: groupLocks,
+      declaredResults: allDeclaredResults,
+      sections: allSections
+    } = await FirebaseService.getJudgeDashboardData(user?.talentTestEventId);
+    
     setEvents(allEvents);
-    const allCategories = await FirebaseService.getCategories();
-    setCategories(allCategories.sort((a, b) => (a.order || 0) - (b.order || 0)));
-    
-    // Filter participants by assigned talent test event
-    const allParticipants = await FirebaseService.getParticipants();
-    const filteredParticipants = user?.talentTestEventId 
-      ? allParticipants.filter(p => p.talentTestEventId === user.talentTestEventId)
-      : allParticipants;
+    setCategories(allCategories);
     setParticipants(filteredParticipants);
-    
-    const scores = await FirebaseService.getScores();
     setAllScores(scores);
-    const locks = await FirebaseService.getJudgeLocks();
     setJudgeLocks(locks);
-    const allGroupEvents = await FirebaseService.getGroupEvents();
     setGroupEvents(allGroupEvents);
-    
-    // Filter group teams by assigned talent test event
-    const allGroupTeams = await FirebaseService.getGroupTeams();
-    const filteredGroupTeams = user?.talentTestEventId
-      ? allGroupTeams.filter(t => t.talentTestEventId === user.talentTestEventId)
-      : allGroupTeams;
     setGroupTeams(filteredGroupTeams);
-    
-    const data = await FirebaseService.getData();
-    setGroupEventLocks(data.groupEventLocks || []);
-    const allDeclaredResults = await FirebaseService.getDeclaredResults();
+    setGroupEventLocks(groupLocks);
     setDeclaredResults(allDeclaredResults);
-    const allSections = await FirebaseService.getSections();
     setSections(allSections);
   };
 
@@ -114,7 +101,7 @@ const JudgeDashboard = () => {
     const { name, value } = e.target;
     setScores({
       ...scores,
-      [name]: name === 'comments' ? value : Math.min(10, Math.max(0, parseInt(value) || 0))
+      [name]: name === 'comments' ? value : Math.min(10, Math.max(0, parseFloat(value) || 0))
     });
   };
 
@@ -129,23 +116,12 @@ const JudgeDashboard = () => {
     // Check if judge already scored this participant for this event
     const existingScore = getJudgeScore(selectedParticipant.id, selectedEventId);
     
-    const totalScore = 
-      scores.criteria1 + 
-      scores.criteria2 + 
-      scores.criteria3 + 
-      scores.criteria4 + 
-      scores.criteria5;
-
     const scoreData = {
       participantId: selectedParticipant.id,
       eventId: selectedEventId,
       judgeName: user.username,
-      criteria1: scores.criteria1,
-      criteria2: scores.criteria2,
-      criteria3: scores.criteria3,
-      criteria4: scores.criteria4,
-      criteria5: scores.criteria5,
-      totalScore,
+      score: scores.score,
+      totalScore: scores.score,
       comments: scores.comments
     };
 
@@ -201,20 +177,12 @@ const JudgeDashboard = () => {
     const existingScore = getJudgeScore(participant.id, eventId);
     if (existingScore) {
       setScores({
-        criteria1: existingScore.criteria1 || 0,
-        criteria2: existingScore.criteria2 || 0,
-        criteria3: existingScore.criteria3 || 0,
-        criteria4: existingScore.criteria4 || 0,
-        criteria5: existingScore.criteria5 || 0,
+        score: existingScore.score || existingScore.totalScore || 0,
         comments: existingScore.comments || ''
       });
     } else {
       setScores({
-        criteria1: 0,
-        criteria2: 0,
-        criteria3: 0,
-        criteria4: 0,
-        criteria5: 0,
+        score: 0,
         comments: ''
       });
     }
@@ -224,11 +192,7 @@ const JudgeDashboard = () => {
     setSelectedParticipant(null);
     setSelectedEventId(null);
     setScores({
-      criteria1: 0,
-      criteria2: 0,
-      criteria3: 0,
-      criteria4: 0,
-      criteria5: 0,
+      score: 0,
       comments: ''
     });
   };
@@ -342,7 +306,7 @@ const JudgeDashboard = () => {
     } else {
       setEventCategoryCombinations([]);
     }
-  }, [participants, filterEvent, filterCategory, allScores, judgeLocks, user]);
+  }, [participants, filterEvent, filterCategory, allScores, user]);
 
   const participantEventRows = getParticipantEventRows();
 
@@ -360,12 +324,30 @@ const JudgeDashboard = () => {
         await FirebaseService.unlockScores(user.username, eventId, category);
         const locks = await FirebaseService.getJudgeLocks();
         setJudgeLocks(locks);
+        
+        // Update combinations locally
+        setEventCategoryCombinations(prev => 
+          prev.map(combo => 
+            combo.eventId === eventId && combo.category === category
+              ? { ...combo, isLocked: false }
+              : combo
+          )
+        );
       }
     } else {
       if (window.confirm(`Are you sure you want to lock your scores for ${getEventName(eventId)} - ${category}? You can unlock them later if needed.`)) {
         await FirebaseService.lockScores(user.username, eventId, category);
         const locks = await FirebaseService.getJudgeLocks();
         setJudgeLocks(locks);
+        
+        // Update combinations locally
+        setEventCategoryCombinations(prev => 
+          prev.map(combo => 
+            combo.eventId === eventId && combo.category === category
+              ? { ...combo, isLocked: true }
+              : combo
+          )
+        );
       }
     }
   };
@@ -455,14 +437,6 @@ const JudgeDashboard = () => {
       groupEventLocks.some(lock => lock.judgeName === judge && lock.groupEventId === groupEventId && lock.locked)
     );
   };
-
-  const criteriaLabels = [
-    'Presentation / Performance Quality',
-    'Content / Creativity',
-    'Technical Skills',
-    'Stage Presence / Confidence',
-    'Overall Impact'
-  ];
 
   return (
     <div className="judge-dashboard">
@@ -595,7 +569,8 @@ const JudgeDashboard = () => {
                 {participantEventRows.map((row, index) => {
                   const isScored = row.score !== null;
                   const isTopThree = row.rank && row.rank <= 3;
-                  const rowClass = isTopThree ? `rank-${row.rank}` : '';
+                  const showRankHighlight = isTopThree && filterEvent && filterCategory;
+                  const rowClass = showRankHighlight ? `rank-${row.rank}` : '';
                   const isLocked = isEventCategoryLocked(row.eventId, row.participant.ageCategory);
                   
                   return (
@@ -619,9 +594,9 @@ const JudgeDashboard = () => {
                       {isScored ? (
                         <div className="score-with-rank">
                           <span className="score-display scored">
-                            {row.totalScore}/50
+                            {row.totalScore !== null ? row.totalScore.toFixed(2) : '0.00'}/10
                           </span>
-                          {isTopThree && (
+                          {isTopThree && filterEvent && filterCategory && (
                             <span className={`rank-badge rank-${row.rank}`}>
                               {row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : '🥉'} #{row.rank}
                             </span>
@@ -677,42 +652,40 @@ const JudgeDashboard = () => {
 
             <form onSubmit={handleSubmitScore} className="scoring-form">
               <p className="scoring-instruction">
-                Rate each criterion from 0 to 10 points:
+                Rate from 0 to 10 points (0.25 increments):
               </p>
 
-              {[1, 2, 3, 4, 5].map((num) => (
-                <div key={num} className="score-group">
-                  <label htmlFor={`criteria${num}`}>
-                    {criteriaLabels[num - 1]}
-                  </label>
-                  <div className="score-input-container">
-                    <input
-                      type="range"
-                      id={`criteria${num}`}
-                      name={`criteria${num}`}
-                      min="0"
-                      max="10"
-                      value={scores[`criteria${num}`]}
-                      onChange={handleScoreChange}
-                      className="score-slider"
-                    />
-                    <input
-                      type="number"
-                      name={`criteria${num}`}
-                      min="0"
-                      max="10"
-                      value={scores[`criteria${num}`]}
-                      onChange={handleScoreChange}
-                      className="score-number"
-                    />
-                  </div>
+              <div className="score-group">
+                <label htmlFor="score">Score</label>
+                <div className="score-input-container">
+                  <input
+                    type="range"
+                    id="score"
+                    name="score"
+                    min="0"
+                    max="10"
+                    step="0.25"
+                    value={scores.score}
+                    onChange={handleScoreChange}
+                    className="score-slider"
+                  />
+                  <input
+                    type="number"
+                    name="score"
+                    min="0"
+                    max="10"
+                    step="0.25"
+                    value={scores.score}
+                    onChange={handleScoreChange}
+                    className="score-number"
+                  />
                 </div>
-              ))}
+              </div>
 
               <div className="total-score">
                 <strong>Total Score:</strong> 
                 <span className="score-value">
-                  {scores.criteria1 + scores.criteria2 + scores.criteria3 + scores.criteria4 + scores.criteria5} / 50
+                  {scores.score.toFixed(2)} / 10
                 </span>
               </div>
 

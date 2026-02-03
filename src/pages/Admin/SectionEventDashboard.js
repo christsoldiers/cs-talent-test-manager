@@ -19,11 +19,8 @@ const SectionEventDashboard = () => {
   }, [user, navigate]);
 
   const loadData = async () => {
-    const events = await FirebaseService.getTalentTestEvents();
+    const { events, participants: allParticipants } = await FirebaseService.getSectionEventDashboardData(user.section);
     setTalentTestEvents(events);
-
-    // Calculate stats for each event (filtered by section)
-    const allParticipants = await FirebaseService.getParticipantsBySection(user.section);
 
     const eventStats = {};
     events.forEach(event => {
